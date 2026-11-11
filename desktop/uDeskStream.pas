@@ -24,7 +24,9 @@ type
     FQuality: Integer;
     FRunning: Boolean;
     FOnLog: TStreamLogEvent;
+    FSyncLogMsg: string;
     procedure Log(const S: string);
+    procedure DoSyncLog;
     function SendAll(ASock: TSocket; const ABuffer; ACount: Integer): Boolean;
     function RecvAll(ASock: TSocket; var ABuffer; ACount: Integer): Boolean;
     procedure ProcessClientCommands;
@@ -42,6 +44,7 @@ type
   private
     FHost: string;
     FPort: Integer;
+    FLocalIP: string;
     FSocket: TSocket;
     FRunning: Boolean;
     FConnected: Boolean;
@@ -49,15 +52,18 @@ type
     FLatestFrameId: Cardinal;
     FOnFrame: TFrameEvent;
     FOnLog: TStreamLogEvent;
+    FSyncLogMsg: string;
     FSendLock: TRTLCriticalSection;
     procedure Log(const S: string);
+    procedure DoSyncLog;
     procedure SyncFrame;
+    function TryConnectTo(const TargetIP: string; TargetPort, TimeoutMs: Integer): TSocket;
     function SendAll(const ABuffer; ACount: Integer): Boolean;
     function RecvAll(var ABuffer; ACount: Integer): Boolean;
   protected
     procedure Execute; override;
   public
-    constructor Create(const AHost: string; APort: Integer);
+    constructor Create(const AHost: string; APort: Integer; const ALocalIP: string = '');
     destructor Destroy; override;
     procedure StopClient;
     function SendMouseMove(NormX, NormY: Word): Boolean;
@@ -79,19 +85,43 @@ var
   WSAData: TWSAData;
   HostName: array[0..255] of AnsiChar;
   HostEnt: PHostEnt;
-  Addr: PInAddr;
+  I: Integer;
+  CurAddr: PInAddr;
+  Candidate, IPStr: string;
 begin
   Result := '127.0.0.1';
+  Candidate := '';
   if WSAStartup($0202, WSAData) = 0 then
   begin
     try
       if GetHostName(HostName, SizeOf(HostName)) = 0 then
       begin
         HostEnt := GetHostByName(HostName);
-        if (HostEnt <> nil) and (HostEnt^.h_addr_list <> nil) and (HostEnt^.h_addr_list^ <> nil) then
+        if (HostEnt <> nil) and (HostEnt^.h_addr_list <> nil) then
         begin
-          Addr := PInAddr(HostEnt^.h_addr_list^);
-          Result := string(inet_ntoa(Addr^));
+          I := 0;
+          while HostEnt^.h_addr_list[I] <> nil do
+          begin
+            CurAddr := PInAddr(HostEnt^.h_addr_list[I]);
+            IPStr := string(inet_ntoa(CurAddr^));
+            // Ignora loopback e link-local APIPA (169.254.x.x)
+            if (IPStr <> '127.0.0.1') and not (Copy(IPStr, 1, 8) = '169.254.') then
+            begin
+              // Se for endereco de rede privada tipico (10., 172., 192.168.), seleciona imediatamente
+              if (Copy(IPStr, 1, 3) = '10.') or
+                 (Copy(IPStr, 1, 4) = '172.') or
+                 (Copy(IPStr, 1, 8) = '192.168.') then
+              begin
+                Result := IPStr;
+                Exit;
+              end;
+              if Candidate = '' then
+                Candidate := IPStr;
+            end;
+            Inc(I);
+          end;
+          if Candidate <> '' then
+            Result := Candidate;
         end;
       end;
     finally
@@ -127,8 +157,14 @@ end;
 
 procedure TDeskStreamServer.Log(const S: string);
 begin
+  FSyncLogMsg := S;
+  Synchronize(@DoSyncLog);
+end;
+
+procedure TDeskStreamServer.DoSyncLog;
+begin
   if Assigned(FOnLog) then
-    FOnLog(Self, S);
+    FOnLog(Self, FSyncLogMsg);
 end;
 
 procedure TDeskStreamServer.StopServer;
@@ -246,7 +282,9 @@ end;
 procedure TDeskStreamServer.Execute;
 var
   WSAData: TWSAData;
-  Addr: TSockAddrIn;
+  Addr, ClientAddr: TSockAddrIn;
+  ClientAddrLen: Integer;
+  ClientIPStr: string;
   OptVal: Integer;
   Bmp: Graphics.TBitmap;
   JpegStream: TMemoryStream;
@@ -259,7 +297,11 @@ begin
 
   try
     FListeningSocket := socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if FListeningSocket = INVALID_SOCKET then Exit;
+    if FListeningSocket = INVALID_SOCKET then
+    begin
+      Log('[STREAM SERVER ERRO] Falha ao criar socket de escuta.');
+      Exit;
+    end;
 
     OptVal := 1;
     setsockopt(FListeningSocket, SOL_SOCKET, SO_REUSEADDR, PAnsiChar(@OptVal), SizeOf(OptVal));
@@ -269,8 +311,19 @@ begin
     Addr.sin_port := htons(FPort);
     Addr.sin_addr.s_addr := INADDR_ANY;
 
-    if bind(FListeningSocket, Addr, SizeOf(Addr)) <> 0 then Exit;
-    if listen(FListeningSocket, 1) <> 0 then Exit;
+    if bind(FListeningSocket, Addr, SizeOf(Addr)) <> 0 then
+    begin
+      Log('[STREAM SERVER ERRO] Falha no bind da porta ' + IntToStr(FPort) + ' (Erro ' + IntToStr(WSAGetLastError) + '). Talvez já esteja em uso.');
+      Exit;
+    end;
+
+    if listen(FListeningSocket, 1) <> 0 then
+    begin
+      Log('[STREAM SERVER ERRO] Falha no listen da porta ' + IntToStr(FPort) + ' (Erro ' + IntToStr(WSAGetLastError) + ').');
+      Exit;
+    end;
+
+    Log('[STREAM SERVER] Servidor escutando na porta ' + IntToStr(FPort) + ' (IP Local: ' + GetLocalIPAddress + '). Aguardando conexão...');
 
     FrameCounter := 0;
     Magic := DESK_MAGIC;
@@ -280,8 +333,13 @@ begin
       while FRunning and not Terminated do
       begin
         // Aguarda conexão do controlador
-        FClientSocket := accept(FListeningSocket, nil, nil);
+        FillChar(ClientAddr, SizeOf(ClientAddr), 0);
+        ClientAddrLen := SizeOf(ClientAddr);
+        FClientSocket := accept(FListeningSocket, @ClientAddr, @ClientAddrLen);
         if FClientSocket = INVALID_SOCKET then Break;
+
+        ClientIPStr := string(inet_ntoa(ClientAddr.sin_addr));
+        Log('[STREAM SERVER SUCESSO] Cliente conectado a partir de ' + ClientIPStr + '! Iniciando transmissão de tela...');
 
         // Desativa algoritmo Nagle para menor latência
         OptVal := 1;
@@ -309,6 +367,9 @@ begin
               if not SendAll(FClientSocket, PktType, SizeOf(PktType)) then Break;
               if not SendAll(FClientSocket, Hdr, SizeOf(Hdr)) then Break;
               if not SendAll(FClientSocket, JpegStream.Memory^, JpegStream.Size) then Break;
+
+              if FrameCounter = 1 then
+                Log('[STREAM SERVER] Transmitindo quadros da tela (' + IntToStr(Bmp.Width) + 'x' + IntToStr(Bmp.Height) + ', qualidade ' + IntToStr(FQuality) + '%)...');
             finally
               Bmp.Free;
             end;
@@ -322,6 +383,7 @@ begin
         begin
           closesocket(FClientSocket);
           FClientSocket := INVALID_SOCKET;
+          Log('[STREAM SERVER] Cliente ' + ClientIPStr + ' desconectado.');
         end;
       end;
     finally
@@ -334,17 +396,19 @@ begin
       FListeningSocket := INVALID_SOCKET;
     end;
     WSACleanup;
+    Log('[STREAM SERVER] Servidor de streaming finalizado.');
   end;
 end;
 
 { TDeskStreamClient }
 
-constructor TDeskStreamClient.Create(const AHost: string; APort: Integer);
+constructor TDeskStreamClient.Create(const AHost: string; APort: Integer; const ALocalIP: string);
 begin
   inherited Create(True);
   FreeOnTerminate := False;
   FHost := AHost;
   FPort := APort;
+  FLocalIP := ALocalIP;
   FSocket := INVALID_SOCKET;
   FRunning := True;
   FConnected := False;
@@ -363,8 +427,14 @@ end;
 
 procedure TDeskStreamClient.Log(const S: string);
 begin
+  FSyncLogMsg := S;
+  Synchronize(@DoSyncLog);
+end;
+
+procedure TDeskStreamClient.DoSyncLog;
+begin
   if Assigned(FOnLog) then
-    FOnLog(Self, S);
+    FOnLog(Self, FSyncLogMsg);
 end;
 
 procedure TDeskStreamClient.StopClient;
@@ -376,6 +446,84 @@ begin
     FSocket := INVALID_SOCKET;
   end;
   Terminate;
+end;
+
+function TDeskStreamClient.TryConnectTo(const TargetIP: string; TargetPort, TimeoutMs: Integer): TSocket;
+var
+  S: TSocket;
+  Addr: TSockAddrIn;
+  HostEnt: PHostEnt;
+  NonBlock: u_long;
+  FDWrite, FDExcept: TFDSet;
+  TimeVal: TTimeVal;
+  OptVal, OptLen: Longint;
+  Res: Integer;
+begin
+  Result := INVALID_SOCKET;
+  if (TargetIP = '') or (TargetPort <= 0) then Exit;
+
+  S := socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if S = INVALID_SOCKET then Exit;
+
+  FillChar(Addr, SizeOf(Addr), 0);
+  Addr.sin_family := AF_INET;
+  Addr.sin_port := htons(TargetPort);
+  Addr.sin_addr.s_addr := inet_addr(PAnsiChar(AnsiString(TargetIP)));
+  if Addr.sin_addr.s_addr = INADDR_NONE then
+  begin
+    HostEnt := GetHostByName(PAnsiChar(AnsiString(TargetIP)));
+    if (HostEnt = nil) or (HostEnt^.h_addr_list = nil) or (HostEnt^.h_addr_list^ = nil) then
+    begin
+      closesocket(S);
+      Exit;
+    end;
+    Addr.sin_addr.s_addr := PInAddr(HostEnt^.h_addr_list^)^.s_addr;
+  end;
+
+  // Ativa modo nao-bloqueante para respeitar o timeout configurado
+  NonBlock := 1;
+  ioctlsocket(S, Longint(Longword(FIONBIO)), NonBlock);
+
+  Res := connect(S, Addr, SizeOf(Addr));
+  if Res = SOCKET_ERROR then
+  begin
+    if WSAGetLastError = WSAEWOULDBLOCK then
+    begin
+      FD_ZERO(FDWrite);
+      FD_SET(S, FDWrite);
+      FD_ZERO(FDExcept);
+      FD_SET(S, FDExcept);
+
+      TimeVal.tv_sec := TimeoutMs div 1000;
+      TimeVal.tv_usec := (TimeoutMs mod 1000) * 1000;
+
+      Res := select(0, nil, @FDWrite, @FDExcept, @TimeVal);
+      if (Res > 0) and FD_ISSET(S, FDWrite) then
+      begin
+        OptLen := SizeOf(OptVal);
+        OptVal := 0;
+        if (getsockopt(S, SOL_SOCKET, SO_ERROR, PAnsiChar(@OptVal), OptLen) = 0) and (OptVal = 0) then
+          Result := S;
+      end;
+    end;
+  end
+  else
+    Result := S; // Conectou de forma imediata (ex: localhost)
+
+  if Result <> INVALID_SOCKET then
+  begin
+    // Restaura modo bloqueante para transferencia continua
+    NonBlock := 0;
+    ioctlsocket(S, Longint(Longword(FIONBIO)), NonBlock);
+
+    // Desativa algoritmo Nagle para menor latência
+    OptVal := 1;
+    setsockopt(S, IPPROTO_TCP, TCP_NODELAY, PAnsiChar(@OptVal), SizeOf(OptVal));
+  end
+  else
+  begin
+    closesocket(S);
+  end;
 end;
 
 function TDeskStreamClient.SendAll(const ABuffer; ACount: Integer): Boolean;
@@ -421,43 +569,47 @@ end;
 procedure TDeskStreamClient.Execute;
 var
   WSAData: TWSAData;
-  Addr: TSockAddrIn;
-  HostEnt: PHostEnt;
-  OptVal: Integer;
   Magic: Cardinal;
   PktType: Byte;
   Hdr: TFrameHeader;
   JpegStream: TMemoryStream;
   Jpg: TJPEGImage;
+  FirstFrameLogged: Boolean;
 begin
-  if WSAStartup($0202, WSAData) <> 0 then Exit;
+  if WSAStartup($0202, WSAData) <> 0 then
+  begin
+    Log('[STREAM CLIENT ERRO] Falha na inicialização do subsistema de rede (WSAStartup).');
+    Exit;
+  end;
 
   try
-    FSocket := socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if FSocket = INVALID_SOCKET then Exit;
-
-    OptVal := 1;
-    setsockopt(FSocket, IPPROTO_TCP, TCP_NODELAY, PAnsiChar(@OptVal), SizeOf(OptVal));
-
-    FillChar(Addr, SizeOf(Addr), 0);
-    Addr.sin_family := AF_INET;
-    Addr.sin_port := htons(FPort);
-    Addr.sin_addr.s_addr := inet_addr(PAnsiChar(AnsiString(FHost)));
-    if Addr.sin_addr.s_addr = INADDR_NONE then
+    // 1. Se informou IP local, tenta conectar diretamente na LAN (timeout 3s)
+    if (FLocalIP <> '') and (FLocalIP <> '127.0.0.1') and (FLocalIP <> FHost) then
     begin
-      HostEnt := GetHostByName(PAnsiChar(AnsiString(FHost)));
-      if (HostEnt = nil) or (HostEnt^.h_addr_list = nil) or (HostEnt^.h_addr_list^ = nil) then Exit;
-      Addr.sin_addr.s_addr := PInAddr(HostEnt^.h_addr_list^)^.s_addr;
+      Log('[STREAM CLIENT] Tentando conexão direta na rede local: ' + FLocalIP + ':' + IntToStr(FPort) + '...');
+      FSocket := TryConnectTo(FLocalIP, FPort, 3000);
+      if FSocket <> INVALID_SOCKET then
+        Log('[STREAM CLIENT SUCESSO] Conectado via rede local (' + FLocalIP + ':' + IntToStr(FPort) + ')!');
     end;
 
-    if connect(FSocket, Addr, SizeOf(Addr)) <> 0 then
+    // 2. Se a conexao local nao teve sucesso ou nao existia IP local, tenta IP publico / remoto
+    if FSocket = INVALID_SOCKET then
     begin
-      closesocket(FSocket);
-      FSocket := INVALID_SOCKET;
-      Exit;
+      Log('[STREAM CLIENT] Tentando conexão via endereço público: ' + FHost + ':' + IntToStr(FPort) + '...');
+      FSocket := TryConnectTo(FHost, FPort, 5000);
+      if FSocket <> INVALID_SOCKET then
+        Log('[STREAM CLIENT SUCESSO] Conectado via endereço público (' + FHost + ':' + IntToStr(FPort) + ')!')
+      else
+      begin
+        Log('[STREAM CLIENT ERRO] Falha ao conectar ao host (' + FHost + ':' + IntToStr(FPort) + '). Verifique se a porta TCP 9876 está liberada no firewall do Windows.');
+        Exit;
+      end;
     end;
 
     FConnected := True;
+    FirstFrameLogged := False;
+    Log('[STREAM CLIENT] Conexão de streaming ativa! Aguardando quadros de tela...');
+
     JpegStream := TMemoryStream.Create;
     Jpg := TJPEGImage.Create;
     try
@@ -486,6 +638,14 @@ begin
             FLatestBmp.Assign(Jpg);
             FLatestFrameId := Hdr.FrameId;
             Synchronize(@SyncFrame);
+
+            if not FirstFrameLogged then
+            begin
+              FirstFrameLogged := True;
+              Log('[STREAM CLIENT] Primeiro quadro recebido (' + IntToStr(Hdr.Width) + 'x' + IntToStr(Hdr.Height) + ', ' + IntToStr(Hdr.JpegSize) + ' bytes)!');
+            end
+            else if (Hdr.FrameId mod 150) = 0 then
+              Log('[STREAM CLIENT] ' + IntToStr(Hdr.FrameId) + ' quadros recebidos.');
           except
             // Ignora quadro corrompido e continua
           end;
@@ -503,6 +663,7 @@ begin
       FSocket := INVALID_SOCKET;
     end;
     WSACleanup;
+    Log('[STREAM CLIENT] Conexão de streaming encerrada.');
   end;
 end;
 

@@ -136,6 +136,7 @@ type
     procedure Closing(Sender: TObject; var CanClose: Boolean);
     procedure ViewerClosed(Sender: TObject);
     procedure StopStreaming;
+    procedure HandleStreamLog(Sender: TObject; const Msg: string);
 
     procedure LogMsg(const Msg: string);
     procedure LoadConfig;
@@ -237,7 +238,7 @@ begin
                 Identity.Get('registration_secret', ''),
                 GetEnvironmentVariable('COMPUTERNAME'),
                 'windows',
-                '0.3.0'
+                '0.4.0'
               );
             end;
             try
@@ -330,7 +331,7 @@ var
   MI: TMenuItem;
 begin
   inherited CreateNew(AOwner);
-  Caption := 'MaurinDesk — Conexão Remota Assistida';
+  Caption := 'MaurinDesk v0.4.0 — Conexão Remota Assistida';
   SetBounds(100, 60, 980, 680);
   Constraints.MinWidth := 860;
   Constraints.MinHeight := 580;
@@ -491,7 +492,7 @@ begin
     Align := alRight;
     Alignment := taRightJustify;
     Width := 160;
-    Caption := 'MaurinDesk v0.3.0  ';
+    Caption := 'MaurinDesk v0.4.0  ';
     Font.Size := 9;
     Font.Style := [fsBold];
     Font.Color := RGBToColor(220, 38, 38);
@@ -526,7 +527,7 @@ begin
   with TLabel.Create(Self) do begin
     Parent := FSidebar;
     SetBounds(18, 36, 200, 16);
-    Caption := '● Software v0.3.0 (Build 2026-11-11)';
+    Caption := '● Software v0.4.0 (Build 2026-11-11)';
     Font.Size := 8;
     Font.Style := [fsBold];
     Font.Color := RGBToColor(14, 165, 233);
@@ -591,7 +592,7 @@ begin
   with TLabel.Create(Self) do begin
     Parent := FBannerPanel;
     SetBounds(16, 12, 200, 20);
-    Caption := 'MaurinDesk v0.3.0';
+    Caption := 'MaurinDesk v0.4.0';
     Font.Size := 11;
     Font.Style := [fsBold];
     Font.Color := clWhite;
@@ -866,7 +867,7 @@ begin
   LoadFavorites;
 
   // Initial Log messages
-  LogMsg('MaurinDesk v0.3.0 (Build 2026-11-11) inicializado.');
+  LogMsg('MaurinDesk v0.4.0 (Build 2026-11-11) inicializado.');
   LogMsg('Servidor configurado: ' + FURL);
   LogMsg('Perfil local: ' + FProfile);
 
@@ -1113,7 +1114,7 @@ procedure TMainForm.Finished(W: TAPIWorker);
 var
   A: TJSONArray;
   J, PeerObj: TJSONObject;
-  State, ReqKey, ReqName, PeerIP: string;
+  State, ReqKey, ReqName, PeerLocalIP, PeerObservedIP: string;
   PeerPort: Integer;
 begin
   FBusy := False;
@@ -1174,13 +1175,13 @@ begin
         if (State = 'accepted') and FIsController and (FRemoteViewer = nil) then begin
           PeerObj := TJSONObject(W.Data.Find('peer_endpoint'));
           if PeerObj <> nil then begin
-            PeerIP := PeerObj.Get('local_ip', '');
-            if PeerIP = '' then
-              PeerIP := PeerObj.Get('observed_ip', '');
+            PeerLocalIP := PeerObj.Get('local_ip', '');
+            PeerObservedIP := PeerObj.Get('observed_ip', '');
             PeerPort := PeerObj.Get('port', DEFAULT_DESK_PORT);
 
-            LogMsg('[STREAM] Conectando ao host em ' + PeerIP + ':' + IntToStr(PeerPort) + '...');
-            FStreamClient := TDeskStreamClient.Create(PeerIP, PeerPort);
+            LogMsg('[STREAM] Solicitando conexão com host (Local: ' + PeerLocalIP + ', Remoto: ' + PeerObservedIP + ':' + IntToStr(PeerPort) + ')...');
+            FStreamClient := TDeskStreamClient.Create(PeerObservedIP, PeerPort, PeerLocalIP);
+            FStreamClient.OnLog := @HandleStreamLog;
             FRemoteViewer := TfRemoteViewer.CreateViewer(Self, FTarget.Text, True, FStreamClient);
             FRemoteViewer.OnCloseSession := @ViewerClosed;
             FRemoteViewer.Show;
@@ -1192,6 +1193,13 @@ begin
             else
               LogMsg('[STREAM] Aguardando o host anunciar seu endpoint de rede...');
           end;
+        end;
+
+        // Se a sessão foi aceita e este computador é o host, garante que o stream server está ativo
+        if (State = 'accepted') and not FIsController and (FStreamServer = nil) then begin
+          FStreamServer := TDeskStreamServer.Create(DEFAULT_DESK_PORT, True);
+          FStreamServer.OnLog := @HandleStreamLog;
+          FStreamServer.Start;
         end;
 
         if (State = 'closed') or (State = 'expired') or (State = 'rejected') or (State = 'cancelled') then begin
@@ -1228,8 +1236,8 @@ begin
       // Inicia servidor de captura de tela no Host
       if FStreamServer = nil then begin
         FStreamServer := TDeskStreamServer.Create(DEFAULT_DESK_PORT, W.Operation = opAcceptControl);
+        FStreamServer.OnLog := @HandleStreamLog;
         FStreamServer.Start;
-        LogMsg('[STREAM] Servidor de streaming de tela iniciado na porta ' + IntToStr(DEFAULT_DESK_PORT) + ' (IP Local: ' + GetLocalIPAddress + '). Aguardando visualizador...');
       end;
     end;
 
@@ -1319,6 +1327,11 @@ begin
     FreeAndNil(FStreamServer);
   end;
   FIsController := False;
+end;
+
+procedure TMainForm.HandleStreamLog(Sender: TObject; const Msg: string);
+begin
+  LogMsg(Msg);
 end;
 
 procedure TMainForm.SettingsClick(Sender: TObject);

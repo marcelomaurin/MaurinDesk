@@ -7,7 +7,7 @@ use Throwable;
 
 /** Ordered migrations. VERSAO changes only after successful schema changes. */
 final class Schema {
-    public const VERSION='0.3';
+    public const VERSION='0.4';
     public static function migrate(PDO $db): void {
         $mysql=$db->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql';
         $lock=false; $lockName='maurindesk_schema';
@@ -47,6 +47,9 @@ final class Schema {
                 '0.3'=>['descricao'=>'Verificacao e reparo completo de tabelas e colunas do MaurinDesk',
                     'repairable'=>true,
                     'files'=>$mysql ? ['003_schema_repair.mysql.sql'] : ['004_schema_repair.sqlite.sql']],
+                '0.4'=>['descricao'=>'Suporte a IP local (LAN) para conexao P2P direta',
+                    'repairable'=>true,
+                    'files'=>$mysql ? ['004_endpoints_lan.mysql.sql'] : ['005_endpoints_lan.sqlite.sql']],
             ];
             foreach ($migrations as $version=>$migration) {
                 // Baseline CREATE IF NOT EXISTS also restores missing tables.
