@@ -134,20 +134,28 @@ final class Api {
         $port=$body['port']??null;
         if (!is_int($port) || $port<1024 || $port>65535 || ($body['transport']??null)!=='tcp')
             $this->fail(400,'VALIDATION_ERROR','Informe porta TCP inteira entre 1024 e 65535.');
-        if (array_diff(array_keys($body),['port','transport']))
-            $this->fail(400,'VALIDATION_ERROR','Somente port e transport sao aceitos; o IP e observado pelo servidor.');
+        if (array_diff(array_keys($body),['port','transport','local_ip']))
+            $this->fail(400,'VALIDATION_ERROR','Somente port, transport e local_ip sao aceitos.');
         if (filter_var($ip,FILTER_VALIDATE_IP)===false)
             $this->fail(400,'INVALID_SOURCE_ADDRESS','Endereco de origem indisponivel.');
+        $localIp = isset($body['local_ip']) && is_string($body['local_ip']) && strlen($body['local_ip']) <= 45 ? $body['local_ip'] : null;
         $upsert=$this->mysql
-            ? 'ON DUPLICATE KEY UPDATE observed_ip=VALUES(observed_ip),port=VALUES(port),
+            ? 'ON DUPLICATE KEY UPDATE observed_ip=VALUES(observed_ip),local_ip=VALUES(local_ip),port=VALUES(port),
                 transport=VALUES(transport),updated_at=VALUES(updated_at)'
-            : 'ON CONFLICT(device_id) DO UPDATE SET observed_ip=excluded.observed_ip,
+            : 'ON CONFLICT(device_id) DO UPDATE SET observed_ip=excluded.observed_ip,local_ip=excluded.local_ip,
                 port=excluded.port,transport=excluded.transport,updated_at=excluded.updated_at';
-        $this->run('INSERT INTO device_endpoints(device_id,observed_ip,port,transport,updated_at)
-            VALUES(?,?,?,?,?) '.$upsert,
-            [$device['id'],$ip,$port,'tcp',$this->now]);
+        try {
+            $this->run('INSERT INTO device_endpoints(device_id,observed_ip,local_ip,port,transport,updated_at)
+                VALUES(?,?,?,?,?,?) '.$upsert,
+                [$device['id'],$ip,$localIp,$port,'tcp',$this->now]);
+        } catch (\Throwable) {
+            $this->run('INSERT INTO device_endpoints(device_id,observed_ip,port,transport,updated_at)
+                VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE observed_ip=VALUES(observed_ip),port=VALUES(port),
+                transport=VALUES(transport),updated_at=VALUES(updated_at)',
+                [$device['id'],$ip,$port,'tcp',$this->now]);
+        }
         $this->run('UPDATE devices SET last_seen=? WHERE id=?',[$this->now,$device['id']]);
-        return ['observed_ip'=>$ip,'port'=>$port,'transport'=>'tcp',
+        return ['observed_ip'=>$ip,'local_ip'=>$localIp,'port'=>$port,'transport'=>'tcp',
             'expires_at'=>gmdate('Y-m-d\TH:i:s\Z',$this->now+45),
             'next_endpoint_update_seconds'=>15,'reachability'=>'unverified'];
     }
@@ -163,7 +171,7 @@ final class Api {
             [$peer,$this->now-45,$this->now-45,$this->now])->fetch();
         if (!$endpoint) $this->fail(409,'PEER_UNAVAILABLE','O outro computador nao anunciou uma porta recente.');
         return ['session_id'=>$session['id'],'peer_device_id'=>$peer,'peer_key'=>$endpoint['public_key'],
-            'observed_ip'=>$endpoint['observed_ip'],'port'=>(int)$endpoint['port'],
+            'observed_ip'=>$endpoint['observed_ip'],'local_ip'=>$endpoint['local_ip']??null,'port'=>(int)$endpoint['port'],
             'transport'=>$endpoint['transport'],'reachability'=>'unverified',
             'endpoint_expires_at'=>gmdate('Y-m-d\TH:i:s\Z',(int)$endpoint['updated_at']+45),
             'session_expires_at'=>gmdate('Y-m-d\TH:i:s\Z',(int)$session['expires_at']),

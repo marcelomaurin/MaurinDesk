@@ -2,10 +2,10 @@
   "version": "0.3.0",
   "platform": "windows-x64",
   "filename": "MaurinDesk.exe",
-  "bytes": 25799484,
-  "sha256": "62189372585f44f50b49bc383367ee6f7b556cc5829c284336ee66009f14b955",
+  "bytes": 26378504,
+  "sha256": "0c2dab38e64fce4d8d640151dbe7507f1f7ce32ec60f3bbf7f5308cdfb088c21",
   "lazarus": "4.6",
   "fpc": "3.2.2",
   "build_date": "2026-11-11",
-  "stage": "identity-presence-consent-anydesk-ui-api-v0.3"
+  "stage": "identity-presence-consent-anydesk-ui-screen-viewer-v0.3"
 }

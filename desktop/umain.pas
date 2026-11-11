@@ -3,7 +3,8 @@ unit umain;
 interface
 uses Classes, SysUtils, Forms, Controls, StdCtrls, ExtCtrls, Dialogs,
   Graphics, Menus, Clipbrd, IniFiles, md5,
-  fpjson, jsonparser, airemoteidentity, airemotesignaling;
+  fpjson, jsonparser, airemoteidentity, airemotesignaling,
+  uDeskProtocol, uScreenCapture, uDeskStream, uRemoteViewer;
 
 type
   TMainForm = class;
@@ -33,6 +34,10 @@ type
     FBusy, FClosing, FAllowLocal: Boolean;
     FWorker: TAPIWorker;
     FTimer: TTimer;
+    FStreamServer: TDeskStreamServer;
+    FStreamClient: TDeskStreamClient;
+    FRemoteViewer: TfRemoteViewer;
+    FIsController: Boolean;
 
     // Header Controls
     FTopBar: TPanel;
@@ -129,6 +134,8 @@ type
     procedure PopupConnectClick(Sender: TObject);
     procedure PopupDeleteClick(Sender: TObject);
     procedure Closing(Sender: TObject; var CanClose: Boolean);
+    procedure ViewerClosed(Sender: TObject);
+    procedure StopStreaming;
 
     procedure LogMsg(const Msg: string);
     procedure LoadConfig;
@@ -257,12 +264,33 @@ begin
           if SessionId <> '' then begin
             J := C.GetSession(SessionId);
             Data.Add('current_session', J);
+            if J.Get('state', '') = 'accepted' then begin
+              try
+                R := C.GetPeerEndpoint(SessionId);
+                Data.Add('peer_endpoint', R);
+              except
+              end;
+            end;
           end;
         end;
 
         opConnect: Data := C.RequestSession(RemoteKey, Control);
-        opAcceptView: Data := C.Decide(SessionId, True, False);
-        opAcceptControl: Data := C.Decide(SessionId, True, True);
+        opAcceptView: begin
+          Data := C.Decide(SessionId, True, False);
+          try
+            J := C.AnnounceEndpoint(DEFAULT_DESK_PORT, 'tcp', GetLocalIPAddress);
+            J.Free;
+          except
+          end;
+        end;
+        opAcceptControl: begin
+          Data := C.Decide(SessionId, True, True);
+          try
+            J := C.AnnounceEndpoint(DEFAULT_DESK_PORT, 'tcp', GetLocalIPAddress);
+            J.Free;
+          except
+          end;
+        end;
         opReject: Data := C.Decide(SessionId, False, False);
         opClose: Data := C.CloseSession(SessionId, 'local_stop');
         opHealth: Data := C.Health;
@@ -817,6 +845,7 @@ destructor TMainForm.Destroy;
 begin
   FClosing := True;
   FTimer.Enabled := False;
+  StopStreaming;
   if FWorker <> nil then begin
     FWorker.WaitFor;
     FWorker.Free;
@@ -961,6 +990,7 @@ begin
     ShowMessage('Informe uma chave remota válida com exatamente 10 dígitos.');
     Exit;
   end;
+  FIsController := True;
   LogMsg('Solicitando conexão para chave: ' + FormatDeskKey(FTarget.Text) + '...');
   Start(opConnect);
 end;
@@ -969,6 +999,7 @@ procedure TMainForm.TopConnectClick(Sender: TObject);
 begin
   if FTopSearchEdit.Text <> '' then
     FTarget.Text := FTopSearchEdit.Text;
+  FIsController := True;
   ConnectClick(Sender);
 end;
 
@@ -1038,8 +1069,9 @@ end;
 procedure TMainForm.Finished(W: TAPIWorker);
 var
   A: TJSONArray;
-  J: TJSONObject;
-  State, ReqKey, ReqName: string;
+  J, PeerObj: TJSONObject;
+  State, ReqKey, ReqName, PeerIP: string;
+  PeerPort: Integer;
 begin
   FBusy := False;
   if FClosing then Exit;
@@ -1094,24 +1126,64 @@ begin
         FActiveSessionText.Caption := 'Sessão atual: ' + State + ' (Chave: ' + FTarget.Text + ')';
         FActiveSessionPanel.Visible := (State = 'accepted') or (State = 'active') or (State = 'pending');
         LogMsg('[STATUS SESSÃO] Estado atual: ' + State);
+
+        // Se a sessão foi aceita e este computador é o controlador, conecta ao stream e abre o Viewer!
+        if (State = 'accepted') and FIsController and (FRemoteViewer = nil) then begin
+          PeerObj := TJSONObject(W.Data.Find('peer_endpoint'));
+          if PeerObj <> nil then begin
+            PeerIP := PeerObj.Get('local_ip', '');
+            if PeerIP = '' then
+              PeerIP := PeerObj.Get('observed_ip', '');
+            PeerPort := PeerObj.Get('port', DEFAULT_DESK_PORT);
+
+            LogMsg('[STREAM] Conectando ao host em ' + PeerIP + ':' + IntToStr(PeerPort) + '...');
+            FStreamClient := TDeskStreamClient.Create(PeerIP, PeerPort);
+            FRemoteViewer := TfRemoteViewer.CreateViewer(Self, FTarget.Text, True, FStreamClient);
+            FRemoteViewer.OnCloseSession := @ViewerClosed;
+            FRemoteViewer.Show;
+            FStreamClient.Start;
+            LogMsg('[VIEWER] Janela do visualizador remoto aberta!');
+          end else
+            LogMsg('[STREAM] Aguardando o host anunciar seu endpoint de rede...');
+        end;
+
         if (State = 'closed') or (State = 'expired') or (State = 'rejected') or (State = 'cancelled') then begin
           FSessionId := '';
           FActiveSessionPanel.Visible := False;
+          StopStreaming;
         end;
-      end else
+      end else begin
         FActiveSessionPanel.Visible := False;
+        StopStreaming;
+      end;
 
       FStatusMsgLabel.Caption := 'Online. ' + IntToStr(A.Count) + ' pedido(s) pendente(s).';
       LogMsg('[HEARTBEAT OK] Presença renovada. ' + IntToStr(A.Count) + ' pedido(s) pendente(s).');
     end;
 
-    opConnect, opAcceptView, opAcceptControl: begin
+    opConnect: begin
+      FSessionId := W.Data.Get('id', '');
+      FActiveSessionText.Caption := 'Sessão: ' + W.Data.Get('state', '') + ' (Aguardando aceite)';
+      FActiveSessionPanel.Visible := True;
+      FIncomingPanel.Visible := False;
+      FStatusMsgLabel.Caption := 'Sessão solicitada: ' + W.Data.Get('state', '');
+      LogMsg('[CONECTADO] Sessão ID ' + FSessionId + ' iniciada. Estado: ' + W.Data.Get('state', ''));
+    end;
+
+    opAcceptView, opAcceptControl: begin
       FSessionId := W.Data.Get('id', '');
       FActiveSessionText.Caption := 'Sessão: ' + W.Data.Get('state', '') + ' (Conectado)';
       FActiveSessionPanel.Visible := True;
       FIncomingPanel.Visible := False;
       FStatusMsgLabel.Caption := 'Sessão iniciada: ' + W.Data.Get('state', '');
       LogMsg('[CONECTADO] Sessão ID ' + FSessionId + ' iniciada. Estado: ' + W.Data.Get('state', ''));
+
+      // Inicia servidor de captura de tela no Host
+      if FStreamServer = nil then begin
+        FStreamServer := TDeskStreamServer.Create(DEFAULT_DESK_PORT, W.Operation = opAcceptControl);
+        FStreamServer.Start;
+        LogMsg('[STREAM] Servidor de streaming de tela iniciado na porta ' + IntToStr(DEFAULT_DESK_PORT) + ' (IP Local: ' + GetLocalIPAddress + '). Aguardando visualizador...');
+      end;
     end;
 
     opReject: begin
@@ -1123,6 +1195,7 @@ begin
     opClose: begin
       FSessionId := '';
       FActiveSessionPanel.Visible := False;
+      StopStreaming;
       FStatusMsgLabel.Caption := 'Sessão encerrada.';
       LogMsg('[SESSÃO] Sessão encerrada com sucesso.');
     end;
@@ -1165,10 +1238,40 @@ end;
 
 procedure TMainForm.StopClick(Sender: TObject);
 begin
+  StopStreaming;
   if FSessionId <> '' then begin
     LogMsg('Encerrando sessão ativa ' + FSessionId + '...');
     Start(opClose, FSessionId);
   end;
+end;
+
+procedure TMainForm.ViewerClosed(Sender: TObject);
+begin
+  LogMsg('[VIEWER] Janela do visualizador foi fechada.');
+  FRemoteViewer := nil;
+  StopStreaming;
+  if FSessionId <> '' then
+    Start(opClose, FSessionId);
+end;
+
+procedure TMainForm.StopStreaming;
+begin
+  if FRemoteViewer <> nil then begin
+    FRemoteViewer.OnCloseSession := nil;
+    FRemoteViewer.Close;
+    FRemoteViewer := nil;
+  end;
+  if FStreamClient <> nil then begin
+    FStreamClient.StopClient;
+    FStreamClient.WaitFor;
+    FreeAndNil(FStreamClient);
+  end;
+  if FStreamServer <> nil then begin
+    FStreamServer.StopServer;
+    FStreamServer.WaitFor;
+    FreeAndNil(FStreamServer);
+  end;
+  FIsController := False;
 end;
 
 procedure TMainForm.SettingsClick(Sender: TObject);

@@ -53,11 +53,14 @@ CREATE TABLE IF NOT EXISTS device_contacts (
 CREATE TABLE IF NOT EXISTS device_endpoints (
  device_id CHAR(36) PRIMARY KEY,
  observed_ip VARCHAR(45) NOT NULL,
+ local_ip VARCHAR(45) NULL,
  port INT NOT NULL,
  transport VARCHAR(10) NOT NULL,
  updated_at BIGINT NOT NULL,
  KEY idx_endpoints_device(device_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+ALTER TABLE device_endpoints ADD COLUMN IF NOT EXISTS local_ip VARCHAR(45) NULL;
 
 CREATE TABLE IF NOT EXISTS idempotency (
  device_id CHAR(36) NOT NULL,
