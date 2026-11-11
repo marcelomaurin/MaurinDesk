@@ -1,5 +1,7 @@
 # Registro de decisões
 
+> Servidor atualizado: consulte [ajuste Hostinger e P2P](11-servidor-hostinger.md). Os detalhes abaixo registram a proposta ou entrega anterior.
+
 > Especificação original 0.1. Consulte [andamento 0.2.0](10-implementacao.md) para código entregue, testes e pendências atuais.
 11/11/2026 — versão documental inicial.
 

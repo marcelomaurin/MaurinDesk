@@ -1,9 +1,12 @@
 <?php
 declare(strict_types=1);
 require dirname(__DIR__).'/src/Api.php';
+require dirname(__DIR__).'/src/Schema.php';
 use MaurinDesk\Api;
-$db=new PDO('sqlite::memory:');
-$db->exec(file_get_contents(dirname(__DIR__).'/migrations/001_initial.sql'));
+$dsn=getenv('MAURINDESK_TEST_MYSQL_DSN');
+$db=$dsn ? new PDO($dsn,getenv('MAURINDESK_TEST_MYSQL_USER'),getenv('MAURINDESK_TEST_MYSQL_PASSWORD'),
+    [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_EMULATE_PREPARES=>false]) : new PDO('sqlite::memory:');
+\MaurinDesk\Schema::migrate($db);
 $now=1800000000;
 $api=new Api($db,function() use (&$now): int { return $now; });
 $count=0;

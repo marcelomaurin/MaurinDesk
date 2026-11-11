@@ -5,6 +5,7 @@ namespace MaurinDesk;
 use PDO;
 use RuntimeException;
 use Throwable;
+require_once __DIR__.'/DesktopData.php';
 
 final class ApiError extends RuntimeException {
     public function __construct(public readonly int $status, public readonly string $errorCode, string $message) {
@@ -12,16 +13,20 @@ final class ApiError extends RuntimeException {
     }
 }
 
-/** First executable slice: device identity, presence and explicit session consent.
- * Media, input, session tokens and signalling deliberately remain unavailable.
+/** Device identity, presence, explicit consent and P2P endpoint discovery.
+ * Media, input and authentication of the desktop channel are separate concerns.
  */
 final class Api {
     private int $now;
+    private bool $mysql;
     public function __construct(private PDO $db, private $clock = null) {
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-        $db->exec('PRAGMA foreign_keys=ON');
-        $db->exec('PRAGMA busy_timeout=5000');
+        $this->mysql=$db->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql';
+        if (!$this->mysql) {
+            $db->exec('PRAGMA foreign_keys=ON');
+            $db->exec('PRAGMA busy_timeout=5000');
+        }
     }
     public static function uuid(): string {
         $b = random_bytes(16);
@@ -32,6 +37,13 @@ final class Api {
     }
     private function run(string $sql, array $args = []): \PDOStatement {
         $q=$this->db->prepare($sql); $q->execute($args); return $q;
+    }
+    private function beginWrite(): void {
+        if ($this->mysql) {
+            $this->db->beginTransaction();
+            // Serialize state changes, including host reservation and rate limits.
+            $this->db->query('SELECT id FROM api_mutex WHERE id=1 FOR UPDATE')->fetch();
+        } else $this->db->exec('BEGIN IMMEDIATE');
     }
     private function fail(int $status, string $code, string $message): never {
         throw new ApiError($status,$code,$message);
@@ -56,12 +68,14 @@ final class Api {
             [$session,$actor,$event,$this->now]);
     }
     private function limit(string $bucket,int $max,int $seconds): void {
-        $this->db->exec('BEGIN IMMEDIATE');
+        $this->beginWrite();
         try {
             $r=$this->run('SELECT * FROM rate_limits WHERE bucket=?',[$bucket])->fetch();
             if (!$r || (int)$r['expires_at']<=$this->now) {
-                $this->run('INSERT INTO rate_limits(bucket,count,expires_at) VALUES(?,1,?)
-                    ON CONFLICT(bucket) DO UPDATE SET count=1,expires_at=excluded.expires_at',
+                $upsert=$this->mysql
+                    ? 'ON DUPLICATE KEY UPDATE count=1,expires_at=VALUES(expires_at)'
+                    : 'ON CONFLICT(bucket) DO UPDATE SET count=1,expires_at=excluded.expires_at';
+                $this->run('INSERT INTO rate_limits(bucket,count,expires_at) VALUES(?,1,?) '.$upsert,
                     [$bucket,$this->now+$seconds]);
             } elseif ((int)$r['count'] >= $max) {
                 $this->db->exec('COMMIT');
@@ -105,6 +119,45 @@ final class Api {
         if (!$s) $this->fail(404,'NOT_FOUND','Sessão não encontrada.');
         return $s;
     }
+    private function publishEndpoint(array $device,array $body,string $ip): array {
+        $port=$body['port']??null;
+        if (!is_int($port) || $port<1024 || $port>65535 || ($body['transport']??null)!=='tcp')
+            $this->fail(400,'VALIDATION_ERROR','Informe porta TCP inteira entre 1024 e 65535.');
+        if (array_diff(array_keys($body),['port','transport']))
+            $this->fail(400,'VALIDATION_ERROR','Somente port e transport sao aceitos; o IP e observado pelo servidor.');
+        if (filter_var($ip,FILTER_VALIDATE_IP)===false)
+            $this->fail(400,'INVALID_SOURCE_ADDRESS','Endereco de origem indisponivel.');
+        $upsert=$this->mysql
+            ? 'ON DUPLICATE KEY UPDATE observed_ip=VALUES(observed_ip),port=VALUES(port),
+                transport=VALUES(transport),updated_at=VALUES(updated_at)'
+            : 'ON CONFLICT(device_id) DO UPDATE SET observed_ip=excluded.observed_ip,
+                port=excluded.port,transport=excluded.transport,updated_at=excluded.updated_at';
+        $this->run('INSERT INTO device_endpoints(device_id,observed_ip,port,transport,updated_at)
+            VALUES(?,?,?,?,?) '.$upsert,
+            [$device['id'],$ip,$port,'tcp',$this->now]);
+        $this->run('UPDATE devices SET last_seen=? WHERE id=?',[$this->now,$device['id']]);
+        return ['observed_ip'=>$ip,'port'=>$port,'transport'=>'tcp',
+            'expires_at'=>gmdate('Y-m-d\TH:i:s\Z',$this->now+45),
+            'next_endpoint_update_seconds'=>15,'reachability'=>'unverified'];
+    }
+    private function peerEndpoint(array $session,string $device): array {
+        if (in_array($session['state'],['expired','closed','cancelled','rejected'],true))
+            $this->fail(410,'SESSION_ENDED','Sessao encerrada ou expirada.');
+        if (!in_array($session['state'],['accepted','connecting','active'],true))
+            $this->fail(403,'CONSENT_REQUIRED','O host ainda nao autorizou a conexao.');
+        $peer=$session['host_id']===$device ? $session['requester_id'] : $session['host_id'];
+        $endpoint=$this->run('SELECT e.*,d.public_key FROM device_endpoints e
+            JOIN devices d ON d.id=e.device_id WHERE e.device_id=? AND e.updated_at>?
+            AND d.last_seen>? AND d.token_expires>?',
+            [$peer,$this->now-45,$this->now-45,$this->now])->fetch();
+        if (!$endpoint) $this->fail(409,'PEER_UNAVAILABLE','O outro computador nao anunciou uma porta recente.');
+        return ['session_id'=>$session['id'],'peer_device_id'=>$peer,'peer_key'=>$endpoint['public_key'],
+            'observed_ip'=>$endpoint['observed_ip'],'port'=>(int)$endpoint['port'],
+            'transport'=>$endpoint['transport'],'reachability'=>'unverified',
+            'endpoint_expires_at'=>gmdate('Y-m-d\TH:i:s\Z',(int)$endpoint['updated_at']+45),
+            'session_expires_at'=>gmdate('Y-m-d\TH:i:s\Z',(int)$session['expires_at']),
+            'granted_permissions'=>json_decode($session['granted'],true)];
+    }
     private function register(array $b): array {
         $rid=$this->text($b,'registration_id',36);
         $secret=$this->text($b,'registration_secret',64);
@@ -119,8 +172,8 @@ final class Api {
             if (!hash_equals($d['registration_hash'],$hash))
                 $this->fail(409,'REGISTRATION_CONFLICT','Registro indisponível.');
             $id=$d['id']; $key=$d['public_key'];
-            $this->run('UPDATE devices SET token_hash=?,token_expires=?,last_seen=?,display_name=?,platform=?,app_version=? WHERE id=?',
-                [hash('sha256',$token),$exp,$this->now,$name,$platform,$version,$id]);
+            $this->run('UPDATE devices SET token_hash=?,token_expires=?,last_seen=?,platform=?,app_version=? WHERE id=?',
+                [hash('sha256',$token),$exp,$this->now,$platform,$version,$id]);
         } else {
             $id=self::uuid();
             do {
@@ -130,6 +183,7 @@ final class Api {
             $this->run('INSERT INTO devices VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                 [$id,$key,$rid,$hash,hash('sha256',$token),$exp,$name,$platform,$version,$this->now,$this->now]);
         }
+        (new DesktopData($this->db,$this->now))->preferences($id);
         $this->audit('device.registered',$id);
         return ['device_id'=>$id,'public_key'=>$key,'device_token'=>$token,
             'expires_at'=>gmdate('Y-m-d\TH:i:s\Z',$exp)];
@@ -142,7 +196,9 @@ final class Api {
         try {
             if ($method==='GET' && $path==='/health') {
                 $this->db->query('SELECT id FROM devices LIMIT 1');
-                return [200,['data'=>['status'=>'ok','version'=>'0.2.0','stage'=>'signalling-foundation'],'request_id'=>$requestId]];
+                $this->db->query('SELECT device_id FROM device_endpoints LIMIT 1');
+                $version=$this->db->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColumn();
+                return [200,['data'=>['status'=>'ok','version'=>$version,'stage'=>'p2p-discovery'],'request_id'=>$requestId]];
             }
             $device=null;
             if ($method==='POST' && $path==='/devices') $this->limit('register:'.hash('sha256',$ip),5,3600);
@@ -152,7 +208,7 @@ final class Api {
                 if (isset($body['target_key']) && is_string($body['target_key']))
                     $this->limit('target:'.$body['target_key'],5,60);
             }
-            $this->db->exec('BEGIN IMMEDIATE'); $transaction=true;
+            $this->beginWrite(); $transaction=true;
             // Recheck inside the write transaction, so concurrent expiry cannot be bypassed.
             $this->expire();
             if ($device) $device=$this->authenticate($headers);
@@ -161,7 +217,7 @@ final class Api {
                 $idem=$headers['idempotency-key']??'';
                 if (!preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/Di',$idem))
                     $this->fail(400,'VALIDATION_ERROR','Idempotency-Key UUID obrigatório.');
-                $cached=$this->run('SELECT * FROM idempotency WHERE device_id=? AND route=? AND key=?',
+                $cached=$this->run('SELECT * FROM idempotency WHERE device_id=? AND route=? AND `key`=?',
                     [$device['id'],$method.' '.$path,$idem])->fetch();
                 if ($cached) {
                     if (!hash_equals($cached['body_hash'],$bodyHash))
@@ -172,9 +228,28 @@ final class Api {
             }
             if ($method==='POST' && $path==='/devices') {
                 $data=$this->register($body); $status=201;
+            } elseif ($method==='POST' && $path==='/devices/endpoint') {
+                $data=$this->publishEndpoint($device,$body,$ip);
             } elseif ($method==='POST' && $path==='/devices/heartbeat') {
                 $this->run('UPDATE devices SET last_seen=? WHERE id=?',[$this->now,$device['id']]);
                 $data=['server_time'=>gmdate('Y-m-d\TH:i:s\Z',$this->now),'next_heartbeat_seconds'=>15];
+            } elseif ($method==='GET' && $path==='/desktop') {
+                $data=(new DesktopData($this->db,$this->now))->dashboard($device);
+            } elseif ($method==='PATCH' && $path==='/devices/me') {
+                $data=(new DesktopData($this->db,$this->now))->rename($device,$body);
+            } elseif ($method==='PATCH' && $path==='/desktop/preferences') {
+                $data=(new DesktopData($this->db,$this->now))->updatePreferences($device['id'],$body);
+            } elseif ($method==='GET' && $path==='/contacts') {
+                $data=(new DesktopData($this->db,$this->now))->contacts($device['id']);
+            } elseif ($method==='POST' && $path==='/contacts') {
+                $data=(new DesktopData($this->db,$this->now))->saveContact($device,$body);
+            } elseif (preg_match('#^/contacts/([a-f0-9-]{36})$#D',$path,$contact)) {
+                $ui=new DesktopData($this->db,$this->now);
+                if ($method==='PATCH') $data=$ui->saveContact($device,$body,$contact[1]);
+                elseif ($method==='DELETE') $data=$ui->deleteContact($device['id'],$contact[1]);
+                else $this->fail(404,'NOT_FOUND','Rota nao encontrada.');
+            } elseif ($method==='GET' && $path==='/sessions/recent') {
+                $data=(new DesktopData($this->db,$this->now))->recent($device['id']);
             } elseif ($method==='POST' && $path==='/sessions') {
                 $key=$this->text($body,'target_key',10);
                 if (!preg_match('/^[0-9]{10}$/D',$key)) $this->fail(400,'VALIDATION_ERROR','Chave deve ter 10 dígitos.');
@@ -184,7 +259,7 @@ final class Api {
                 if (!$host) $this->fail(404,'TARGET_UNAVAILABLE','Destino indisponível.');
                 if ($host['id']===$device['id']) $this->fail(400,'VALIDATION_ERROR','Não conecte à própria máquina.');
                 $id=self::uuid();
-                $this->run("INSERT INTO sessions(id,requester_id,host_id,state,requested,created_at,expires_at) VALUES(?,?,?,'pending',?,?,?)",
+                $this->run("INSERT INTO sessions(id,requester_id,host_id,state,requested,granted,created_at,expires_at) VALUES(?,?,?,'pending',?,'[]',?,?)",
                     [$id,$device['id'],$host['id'],json_encode($perms),$this->now,$this->now+60]);
                 $this->audit('session.requested',$device['id'],$id);
                 $data=$this->view($this->session($id,$device['id'])); $status=201;
@@ -192,9 +267,10 @@ final class Api {
                 $rows=$this->run("SELECT * FROM sessions WHERE host_id=? AND state='pending' ORDER BY created_at,id LIMIT 100",
                     [$device['id']])->fetchAll();
                 $data=['items'=>array_map(fn($s)=>$this->view($s),$rows),'server_time'=>gmdate('c',$this->now)];
-            } elseif (preg_match('#^/sessions/([a-f0-9-]{36})(?:/(decision|cancel|close))?$#D',$path,$m)) {
+            } elseif (preg_match('#^/sessions/([a-f0-9-]{36})(?:/(decision|cancel|close|peer))?$#D',$path,$m)) {
                 $s=$this->session($m[1],$device['id']); $action=$m[2]??'';
                 if ($method==='GET' && $action==='') $data=$this->view($s);
+                elseif ($method==='GET' && $action==='peer') $data=$this->peerEndpoint($s,$device['id']);
                 elseif ($method==='POST' && $action==='close') {
                     if (in_array($s['state'],['pending','accepted','connecting','active'],true)) {
                         $reason=$this->text($body,'reason',80);

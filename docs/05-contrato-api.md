@@ -1,5 +1,7 @@
 # Contrato proposto de API v1
 
+> Servidor atualizado: consulte [ajuste Hostinger e P2P](11-servidor-hostinger.md). Os detalhes abaixo registram a proposta ou entrega anterior.
+
 **Contrato alvo. A implementação 0.2.0 cobre um subconjunto; veja [andamento](10-implementacao.md). A API oficial ainda não foi publicada.** Base: `https://maurinsoft.com.br/maurindesk/api/v1/`.
 
 ## Convenções

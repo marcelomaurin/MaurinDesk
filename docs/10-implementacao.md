@@ -1,4 +1,6 @@
 # Andamento — 0.2.0
+
+> Servidor atualizado: consulte [ajuste Hostinger e P2P](11-servidor-hostinger.md). Os detalhes abaixo registram a proposta ou entrega anterior.
 11/11/2026. Primeira implementação em C:/projetos/maurinsoft/MaurinDesk.
 
 ## Entregue e validado

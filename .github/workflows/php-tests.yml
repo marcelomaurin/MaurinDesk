@@ -18,7 +18,37 @@ jobs:
           coverage: none
       - name: Syntax
         run: find server/php -name '*.php' -print0 | xargs -0 -n1 php -l
-      - name: Consent and identity tests
-        run: php server/php/tests/run.php
+      - name: Consent, identity and P2P discovery tests
+        run: php server/php/tests/desktop_ui.php
+      - name: Automatic schema and version migrations
+        run: php server/php/tests/schema.php
       - name: HTTP boundary tests
         run: python3 tests/http_smoke.py
+  mysql:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        database: ['mysql:8.0', 'mariadb:11.4']
+    services:
+      database:
+        image: ${{ matrix.database }}
+        env:
+          MYSQL_ROOT_PASSWORD: ci-test-only
+          MYSQL_DATABASE: maurindesk_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-test-only || mariadb-admin ping -h 127.0.0.1 -pci-test-only"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql
+          coverage: none
+      - name: Consent and P2P discovery on MySQL-compatible engines
+        env:
+          MAURINDESK_TEST_MYSQL_DSN: mysql:host=127.0.0.1;port=3306;dbname=maurindesk_test;charset=utf8mb4
+          MAURINDESK_TEST_MYSQL_USER: root
+          MAURINDESK_TEST_MYSQL_PASSWORD: ci-test-only
+        run: php server/php/tests/desktop_ui.php

@@ -1,5 +1,7 @@
 # Arquitetura proposta
 
+> Servidor atualizado: consulte [ajuste Hostinger e P2P](11-servidor-hostinger.md). Os detalhes abaixo registram a proposta ou entrega anterior.
+
 ## Divisão de responsabilidades
 | Camada | Responsabilidade | Local |
 |---|---|---|

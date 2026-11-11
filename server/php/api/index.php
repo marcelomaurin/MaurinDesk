@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+ini_set('display_errors','0');
 require dirname(__DIR__).'/bootstrap.php';
 use MaurinDesk\Api;
 header('Content-Type: application/json; charset=utf-8');
@@ -11,6 +12,8 @@ function send_error(int $status,string $code,string $message): never {
     exit;
 }
 // Never trust X-Forwarded-Proto from an arbitrary caller.
+try { maurindesk_load_env(); }
+catch (Throwable) { send_error(503,'CONFIGURATION_ERROR','Configuracao indisponivel.'); }
 $local=getenv('APP_ENV')==='development' && in_array($_SERVER['REMOTE_ADDR']??'',['127.0.0.1','::1'],true);
 if (!$local && ($_SERVER['HTTPS']??'')!=='on')
     send_error(400,'HTTPS_REQUIRED','HTTPS obrigatório.');
@@ -29,10 +32,15 @@ if ($raw!=='') {
 }
 $base=rtrim(getenv('API_BASE_PATH')?:'/maurindesk/api/v1','/');
 $path=parse_url($_SERVER['REQUEST_URI']??'/',PHP_URL_PATH);
-if (!is_string($path) || !str_starts_with($path,$base.'/')) send_error(404,'NOT_FOUND','Rota não encontrada.');
-$path=substr($path,strlen($base));
+if (is_string($path) && $path===rtrim(dirname(dirname($base)),'/').'/' && ($_SERVER['REQUEST_METHOD']??'GET')==='GET') {
+    $path='/health';
+} else {
+    if (!is_string($path) || !str_starts_with($path,$base.'/')) send_error(404,'NOT_FOUND','Rota não encontrada.');
+    $path=substr($path,strlen($base));
+}
 $headers=function_exists('getallheaders')?getallheaders():[];
 if (isset($_SERVER['HTTP_AUTHORIZATION'])) $headers['authorization']=$_SERVER['HTTP_AUTHORIZATION'];
+elseif (isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) $headers['authorization']=$_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
 if (isset($_SERVER['HTTP_IDEMPOTENCY_KEY'])) $headers['idempotency-key']=$_SERVER['HTTP_IDEMPOTENCY_KEY'];
 try {
     $api=new Api(maurindesk_db());

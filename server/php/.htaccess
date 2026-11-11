@@ -1,0 +1,6 @@
+Options -Indexes
+RewriteEngine On
+RewriteRule ^$ api/index.php [L]
+# When this directory is published as /maurindesk/, only api/ is public.
+# Config, database helpers, migrations and tests must never be served.
+RewriteRule ^(?!api(?:/|$)) - [F,L,NC]

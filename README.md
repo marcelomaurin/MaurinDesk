@@ -18,6 +18,12 @@ Acesso remoto assistido, inspirado no fluxo de uso do AnyDesk, com cliente deskt
 
 O servidor PHP não terá páginas, painel ou interface de acesso remoto no navegador. As telas de conexão, consentimento e visualização pertencem ao desktop.
 
+## Servidor atualizado
+
+Servidor oficial: https://maurinsoft.com.br/maurindesk/ . API em `/maurindesk/api/v1/`, com métodos HTTP em `server/php/api/`. Criação automática do banco, versão inicial 0.1 e migração atual para `params.VERSAO=0.2`, com dados para a interface desktop. Veja [instalação Hostinger](server/php/README.md) e [estado atual do servidor](docs/11-servidor-hostinger.md). O desktop e o executável ainda são 0.2.0.
+
+Veja também o [mapeamento do banco para a interface](docs/12-banco-interface.md).
+
 ## Documentação
 
 | Documento | Conteúdo |
