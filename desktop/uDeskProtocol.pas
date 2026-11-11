@@ -9,7 +9,7 @@ uses
 
 const
   DESK_MAGIC = $4B53444D; // 'MDSK' ($4D, $44, $53, $4B)
-  DEFAULT_DESK_PORT = 9876;
+  DEFAULT_DESK_PORT = 7071;
 
   // Packet Types
   PKT_HELLO       = $01;

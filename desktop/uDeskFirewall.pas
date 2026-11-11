@@ -13,7 +13,7 @@ uses
   {$ENDIF}
 
 function IsFirewallRuleConfigured: Boolean;
-function EnsureFirewallRule(out NeedsElevation: Boolean): Boolean;
+function EnsureFirewallRule(out NeedsElevation: Boolean; APort: Integer = 7071): Boolean;
 
 implementation
 
@@ -53,7 +53,7 @@ begin
 end;
 {$ENDIF}
 
-function EnsureFirewallRule(out NeedsElevation: Boolean): Boolean;
+function EnsureFirewallRule(out NeedsElevation: Boolean; APort: Integer = 7071): Boolean;
 {$IFDEF WINDOWS}
 var
   CmdParams: string;
@@ -70,9 +70,10 @@ begin
   NeedsElevation := True;
   ExePath := ParamStr(0);
 
-  // Libera tanto o executavel quanto a porta TCP 9876 em todas as redes (Dominio, Privada, Publica)
+  // Libera tanto o executavel quanto a porta TCP informada (padrao 7071) e 9876
   CmdParams := '/c netsh advfirewall firewall add rule name="MaurinDesk" dir=in action=allow program="' +
-    ExePath + '" enable=yes profile=any & netsh advfirewall firewall add rule name="MaurinDesk Port 9876" dir=in action=allow protocol=TCP localport=9876 enable=yes profile=any';
+    ExePath + '" enable=yes profile=any & netsh advfirewall firewall add rule name="MaurinDesk Port ' +
+    IntToStr(APort) + '" dir=in action=allow protocol=TCP localport=' + IntToStr(APort) + ' enable=yes profile=any';
 
   Res := ShellExecute(0, 'runas', 'cmd.exe', PChar(CmdParams), nil, SW_HIDE);
   Result := Res > 32;

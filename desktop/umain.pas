@@ -21,6 +21,7 @@ type
     Operation: TOperation;
     URL, Token, IdentityFile, RemoteKey, SessionId, Failure: string;
     LogCategory, LogMessage, LogContent: string;
+    StreamPort: Integer;
     AllowLocal, Control: Boolean;
     Data: TJSONObject;
     constructor Create(AOwner: TMainForm);
@@ -32,6 +33,7 @@ type
   private
     FURL, FToken, FSessionId, FProfile, FIdentityFile, FConfigFile: string;
     FRawPublicKey: string;
+    FStreamPort: Integer;
     FBusy, FClosing, FAllowLocal: Boolean;
     FWorker: TAPIWorker;
     FTimer: TTimer;
@@ -263,7 +265,7 @@ begin
               AIRemoteSaveSecret(IdentityFile, Identity.AsJSON);
               Data := TJSONObject(R.Clone);
               try
-                J := C.AnnounceEndpoint(DEFAULT_DESK_PORT, 'tcp', GetLocalIPAddress);
+                J := C.AnnounceEndpoint(StreamPort, 'tcp', GetLocalIPAddress);
                 J.Free;
               except
               end;
@@ -279,7 +281,7 @@ begin
           J := C.Heartbeat;
           J.Free;
           try
-            J := C.AnnounceEndpoint(DEFAULT_DESK_PORT, 'tcp', GetLocalIPAddress);
+            J := C.AnnounceEndpoint(StreamPort, 'tcp', GetLocalIPAddress);
             J.Free;
           except
           end;
@@ -303,7 +305,7 @@ begin
         opAcceptView: begin
           Data := C.Decide(SessionId, True, False);
           try
-            J := C.AnnounceEndpoint(DEFAULT_DESK_PORT, 'tcp', GetLocalIPAddress);
+            J := C.AnnounceEndpoint(StreamPort, 'tcp', GetLocalIPAddress);
             J.Free;
           except
           end;
@@ -311,7 +313,7 @@ begin
         opAcceptControl: begin
           Data := C.Decide(SessionId, True, True);
           try
-            J := C.AnnounceEndpoint(DEFAULT_DESK_PORT, 'tcp', GetLocalIPAddress);
+            J := C.AnnounceEndpoint(StreamPort, 'tcp', GetLocalIPAddress);
             J.Free;
           except
           end;
@@ -359,6 +361,7 @@ begin
 
   // Address defaults to: https://maurinsoft.com.br/MaurinDesk/api
   FURL := 'https://maurinsoft.com.br/MaurinDesk/api';
+  FStreamPort := DEFAULT_DESK_PORT;
   FConfigFile := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'MaurinDesk.ini';
   LoadConfig;
 
@@ -907,12 +910,12 @@ begin
   LogMsg('Servidor configurado: ' + FURL);
   LogMsg('Perfil local: ' + FProfile);
 
-  // Assegura automaticamente as regras do Windows Firewall (porta 9876 e binário)
-  if EnsureFirewallRule(NeedsElev) then begin
+  // Assegura automaticamente as regras do Windows Firewall (porta de streaming e binário)
+  if EnsureFirewallRule(NeedsElev, FStreamPort) then begin
     if NeedsElev then
       LogMsg('[FIREWALL] Solicitada liberação automática do Windows Firewall (UAC).')
     else
-      LogMsg('[FIREWALL] Porta TCP 9876 e aplicativo liberados no Windows Firewall.');
+      LogMsg('[FIREWALL] Porta TCP ' + IntToStr(FStreamPort) + ' e aplicativo liberados no Windows Firewall.');
   end else
     LogMsg('[FIREWALL AVISO] Não foi possível registrar regras no Windows Firewall.');
 
@@ -971,6 +974,7 @@ begin
     Ini := TIniFile.Create(FConfigFile);
     try
       FURL := Ini.ReadString('Server', 'URL', FURL);
+      FStreamPort := Ini.ReadInteger('Network', 'Port', DEFAULT_DESK_PORT);
       SetDeskLanguage(StrToDeskLang(Ini.ReadString('General', 'Language', 'pt')));
     finally
       Ini.Free;
@@ -985,6 +989,7 @@ begin
   Ini := TIniFile.Create(FConfigFile);
   try
     Ini.WriteString('Server', 'URL', FURL);
+    Ini.WriteInteger('Network', 'Port', FStreamPort);
     Ini.WriteString('General', 'Language', DeskLangToStr(GetDeskLanguage));
     Ini.UpdateFile;
   finally
@@ -1076,20 +1081,29 @@ end;
 
 procedure TMainForm.ConnectClick(Sender: TObject);
 var
-  TargetText, CleanTarget: string;
+  TargetText, CleanTarget, DirectHost: string;
+  ColonPos, TargetPort: Integer;
 begin
   TargetText := Trim(FTarget.Text);
   CleanTarget := StringReplace(TargetText, ' ', '', [rfReplaceAll]);
 
-  // Se for endereço IP direto (ex: 10.42.0.149 ou 172.17.241.157)
+  // Se for endereço IP direto (ex: 172.17.241.157 ou 172.17.241.157:7071)
   if (Pos('.', TargetText) > 0) and not AIRemoteValidKey(CleanTarget) then
   begin
+    TargetPort := FStreamPort;
+    ColonPos := Pos(':', TargetText);
+    if ColonPos > 0 then begin
+      DirectHost := Copy(TargetText, 1, ColonPos - 1);
+      TargetPort := StrToIntDef(Copy(TargetText, ColonPos + 1, Length(TargetText)), FStreamPort);
+    end else
+      DirectHost := TargetText;
+
     FIsController := True;
-    LogMsg('[CONEXÃO DIRETA] Conectando diretamente ao host IP: ' + TargetText + ':' + IntToStr(DEFAULT_DESK_PORT) + '...');
+    LogMsg('[CONEXÃO DIRETA] Conectando diretamente ao host IP: ' + DirectHost + ':' + IntToStr(TargetPort) + '...');
     if FStreamClient <> nil then StopStreaming;
-    FStreamClient := TDeskStreamClient.Create(TargetText, DEFAULT_DESK_PORT, TargetText);
+    FStreamClient := TDeskStreamClient.Create(DirectHost, TargetPort, DirectHost);
     FStreamClient.OnLog := @HandleStreamLog;
-    FRemoteViewer := TfRemoteViewer.CreateViewer(Self, TargetText, True, FStreamClient);
+    FRemoteViewer := TfRemoteViewer.CreateViewer(Self, DirectHost, True, FStreamClient);
     FRemoteViewer.OnCloseSession := @ViewerClosed;
     FRemoteViewer.Show;
     FStreamClient.Start;
@@ -1163,6 +1177,7 @@ begin
   FWorker.SessionId := Id;
   FWorker.AllowLocal := FAllowLocal;
   FWorker.Control := True;
+  FWorker.StreamPort := FStreamPort;
   if Operation = opPoll then
     FWorker.SessionId := FSessionId;
 
@@ -1249,7 +1264,7 @@ begin
           if PeerObj <> nil then begin
             PeerLocalIP := PeerObj.Get('local_ip', '');
             PeerObservedIP := PeerObj.Get('observed_ip', '');
-            PeerPort := PeerObj.Get('port', DEFAULT_DESK_PORT);
+            PeerPort := PeerObj.Get('port', FStreamPort);
 
             LogMsg('[STREAM] Solicitando conexão com host (Local: ' + PeerLocalIP + ', Remoto: ' + PeerObservedIP + ':' + IntToStr(PeerPort) + ')...');
             FStreamClient := TDeskStreamClient.Create(PeerObservedIP, PeerPort, PeerLocalIP);
@@ -1269,7 +1284,7 @@ begin
 
         // Se a sessão foi aceita e este computador é o host, garante que o stream server está ativo
         if (State = 'accepted') and not FIsController and (FStreamServer = nil) then begin
-          FStreamServer := TDeskStreamServer.Create(DEFAULT_DESK_PORT, True);
+          FStreamServer := TDeskStreamServer.Create(FStreamPort, True);
           FStreamServer.OnLog := @HandleStreamLog;
           FStreamServer.Start;
         end;
@@ -1307,7 +1322,7 @@ begin
 
       // Inicia servidor de captura de tela no Host
       if FStreamServer = nil then begin
-        FStreamServer := TDeskStreamServer.Create(DEFAULT_DESK_PORT, W.Operation = opAcceptControl);
+        FStreamServer := TDeskStreamServer.Create(FStreamPort, W.Operation = opAcceptControl);
         FStreamServer.OnLog := @HandleStreamLog;
         FStreamServer.Start;
       end;
@@ -1488,7 +1503,8 @@ end;
 
 procedure TMainForm.SettingsClick(Sender: TObject);
 var
-  NewURL, LangChoice: string;
+  NewURL, PortChoice, LangChoice: string;
+  NewPort: Integer;
 begin
   NewURL := InputBox(_T(strDialogSettingsTitle), _T(strDialogServerPrompt), FURL);
   NewURL := Trim(NewURL);
@@ -1504,6 +1520,15 @@ begin
     FKeyTextLabel.Caption := '--- --- ---';
     FSidebarStatus.Caption := _T(strStatusServerChanged);
     LogMsg('[CONFIG] Servidor alterado para: ' + FURL);
+  end;
+
+  PortChoice := InputBox(_T(strDialogSettingsTitle), 'Porta TCP de Streaming P2P (padrão: 7071):', IntToStr(FStreamPort));
+  if TryStrToInt(Trim(PortChoice), NewPort) and (NewPort > 0) and (NewPort < 65536) then begin
+    if NewPort <> FStreamPort then begin
+      FStreamPort := NewPort;
+      SaveConfig;
+      LogMsg('[CONFIG] Porta de streaming alterada para: ' + IntToStr(FStreamPort));
+    end;
   end;
 
   LangChoice := InputBox(_T(strDialogLanguageTitle), _T(strDialogLanguagePrompt), DeskLangToStr(GetDeskLanguage));
