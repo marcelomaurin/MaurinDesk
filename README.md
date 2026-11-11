@@ -45,3 +45,7 @@ Consulte [desktop/README.md](desktop/README.md) para compilar e [server/php/READ
 ## Estado da infraestrutura
 
 O endereço oficial foi definido pelo proprietário. Sua disponibilidade e o suporte de hospedagem a PHP, banco, TURN e conexões persistentes ainda precisam de validação; esta documentação não representa implantação.
+
+## Executável Windows
+
+A pasta [bin](bin/) contém o [MaurinDesk.exe](bin/MaurinDesk.exe) para Windows x64, com versão e SHA-256 em [manifest.json](bin/manifest.json).

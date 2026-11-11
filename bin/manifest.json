@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "platform": "windows-x64",
+  "filename": "MaurinDesk.exe",
+  "bytes": 25737608,
+  "sha256": "ab9998866fc82c2ed229612d5e880b57164cf5bd6348302d3898f733002ea01d",
+  "source_commit": "4a2eec17c4a52fb375b3e97b0eb7c412d30de20d",
+  "chatgpt_commit": "dcf80078485290fb3eea56cdee2af56dde6912cc",
+  "lazarus": "4.6",
+  "fpc": "3.2.2",
+  "build_date": "2026-11-11",
+  "stage": "identity-presence-consent"
+}

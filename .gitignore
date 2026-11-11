@@ -8,5 +8,4 @@ desktop/*.exe
 desktop/*.compiled
 desktop/*.lps
 /build/
-/bin/
 *.bak

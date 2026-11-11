@@ -54,4 +54,4 @@ nem entrada remota. Métodos de API ainda inexistentes retornam erro e não auto
 ## Reprodução
 Consulte server/php/README.md, desktop/README.md e o teste de integração em tests/signaling_probe.lpr.
 O workflow .github/workflows/php-tests.yml executa testes de PHP e fronteira HTTP no GitHub.
-O executável fica em bin/MaurinDesk.exe e não é versionado junto dos fontes.
+O executável fica em bin/MaurinDesk.exe e está versionado no Git conforme solicitado. bin/manifest.json registra versão, SHA-256 e revisão dos fontes.
