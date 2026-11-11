@@ -4,7 +4,7 @@ interface
 uses Classes, SysUtils, Forms, Controls, StdCtrls, ExtCtrls, Dialogs,
   Graphics, Menus, Clipbrd, IniFiles, md5,
   fpjson, jsonparser, airemoteidentity, airemotesignaling,
-  uDeskProtocol, uScreenCapture, uDeskStream, uRemoteViewer, uDeskI18n, uDeskFirewall;
+  uDeskProtocol, uScreenCapture, uDeskStream, uRemoteViewer, uDeskRelay, uDeskI18n, uDeskFirewall;
 
 type
   TMainForm = class;
@@ -39,6 +39,8 @@ type
     FTimer: TTimer;
     FStreamServer: TDeskStreamServer;
     FStreamClient: TDeskStreamClient;
+    FRelayClient: TDeskRelayClient;
+    FRelayHost: TDeskRelayHost;
     FRemoteViewer: TfRemoteViewer;
     FIsController: Boolean;
 
@@ -150,7 +152,10 @@ type
     procedure Closing(Sender: TObject; var CanClose: Boolean);
     procedure ViewerClosed(Sender: TObject);
     procedure StopStreaming;
+    procedure StartRelayStreaming;
     procedure HandleStreamLog(Sender: TObject; const Msg: string);
+    procedure HandleFallbackToRelay(Sender: TObject);
+    procedure HandlePortSuccess(Sender: TObject; APort: Integer);
 
     procedure LogMsg(const Msg: string);
     procedure LoadConfig;
@@ -1266,14 +1271,25 @@ begin
             PeerObservedIP := PeerObj.Get('observed_ip', '');
             PeerPort := PeerObj.Get('port', FStreamPort);
 
-            LogMsg('[STREAM] Solicitando conexão com host (Local: ' + PeerLocalIP + ', Remoto: ' + PeerObservedIP + ':' + IntToStr(PeerPort) + ')...');
-            FStreamClient := TDeskStreamClient.Create(PeerObservedIP, PeerPort, PeerLocalIP);
-            FStreamClient.OnLog := @HandleStreamLog;
-            FRemoteViewer := TfRemoteViewer.CreateViewer(Self, FTarget.Text, True, FStreamClient);
+            FRemoteViewer := TfRemoteViewer.CreateViewer(Self, FTarget.Text, True, nil);
             FRemoteViewer.OnCloseSession := @ViewerClosed;
             FRemoteViewer.Show;
-            FStreamClient.Start;
             LogMsg('[VIEWER] Janela do visualizador remoto aberta!');
+
+            if PeerObj.Get('use_relay', false) then
+            begin
+              LogMsg('[PONTE] Conexão direcionada para o Modo Ponte através do Servidor.');
+              StartRelayStreaming;
+            end
+            else
+            begin
+              LogMsg('[STREAM] Testando conexões diretas P2P (Local: ' + PeerLocalIP + ', Remoto: ' + PeerObservedIP + ':' + IntToStr(PeerPort) + ')...');
+              FStreamClient := TDeskStreamClient.Create(PeerObservedIP, PeerPort, PeerLocalIP);
+              FStreamClient.OnLog := @HandleStreamLog;
+              FStreamClient.OnFallbackToRelay := @HandleFallbackToRelay;
+              FStreamClient.OnPortSuccess := @HandlePortSuccess;
+              FStreamClient.Start;
+            end;
           end else begin
             if W.Data.Find('peer_endpoint_error') <> nil then
               LogMsg('[STREAM] Aguardando endpoint do host: ' + W.Data.Get('peer_endpoint_error', ''))
@@ -1282,11 +1298,19 @@ begin
           end;
         end;
 
-        // Se a sessão foi aceita e este computador é o host, garante que o stream server está ativo
-        if (State = 'accepted') and not FIsController and (FStreamServer = nil) then begin
-          FStreamServer := TDeskStreamServer.Create(FStreamPort, True);
-          FStreamServer.OnLog := @HandleStreamLog;
-          FStreamServer.Start;
+        // Se a sessão foi aceita e este computador é o host, garante que o stream server e a ponte estão ativos
+        if (State = 'accepted') and not FIsController then begin
+          if FStreamServer = nil then begin
+            FStreamServer := TDeskStreamServer.Create(FStreamPort, True);
+            FStreamServer.OnLog := @HandleStreamLog;
+            FStreamServer.Start;
+          end;
+          if FRelayHost = nil then begin
+            FRelayHost := TDeskRelayHost.Create(FURL, FToken, FSessionId, FAllowLocal);
+            FRelayHost.OnLog := @HandleStreamLog;
+            FRelayHost.Start;
+            LogMsg('[PONTE HOST] Transmissão em Modo Ponte ativada em segundo plano.');
+          end;
         end;
 
         if (State = 'closed') or (State = 'expired') or (State = 'rejected') or (State = 'cancelled') then begin
@@ -1325,6 +1349,13 @@ begin
         FStreamServer := TDeskStreamServer.Create(FStreamPort, W.Operation = opAcceptControl);
         FStreamServer.OnLog := @HandleStreamLog;
         FStreamServer.Start;
+      end;
+      // Inicia retaguarda do Modo Ponte no Servidor
+      if FRelayHost = nil then begin
+        FRelayHost := TDeskRelayHost.Create(FURL, FToken, FSessionId, FAllowLocal);
+        FRelayHost.OnLog := @HandleStreamLog;
+        FRelayHost.Start;
+        LogMsg('[PONTE HOST] Transmissão em Modo Ponte ativada em segundo plano.');
       end;
     end;
 
@@ -1420,7 +1451,41 @@ begin
     FStreamServer.WaitFor;
     FreeAndNil(FStreamServer);
   end;
+  if FRelayClient <> nil then begin
+    FRelayClient.StopRelay;
+    FRelayClient.WaitFor;
+    FreeAndNil(FRelayClient);
+  end;
+  if FRelayHost <> nil then begin
+    FRelayHost.StopRelay;
+    FRelayHost.WaitFor;
+    FreeAndNil(FRelayHost);
+  end;
   FIsController := False;
+end;
+
+procedure TMainForm.StartRelayStreaming;
+begin
+  if FRelayClient <> nil then Exit;
+  LogMsg('[PONTE] Conectando à ponte do Servidor MaurinDesk...');
+  FRelayClient := TDeskRelayClient.Create(FURL, FToken, FSessionId, FAllowLocal);
+  FRelayClient.OnLog := @HandleStreamLog;
+  if FRemoteViewer <> nil then
+    FRemoteViewer.SetRelayClient(FRelayClient);
+  FRelayClient.Start;
+end;
+
+procedure TMainForm.HandleFallbackToRelay(Sender: TObject);
+begin
+  LogMsg('[PONTE] Todas as portas P2P diretas estão bloqueadas. Alternando automaticamente para Modo Ponte...');
+  StartRelayStreaming;
+end;
+
+procedure TMainForm.HandlePortSuccess(Sender: TObject; APort: Integer);
+begin
+  LogMsg('[P2P SUCESSO] Conexão P2P direta estabelecida com sucesso na porta ' + IntToStr(APort) + '!');
+  if FRemoteViewer <> nil then
+    FRemoteViewer.SetPortConnected(APort);
 end;
 
 procedure TMainForm.HandleStreamLog(Sender: TObject; const Msg: string);
@@ -1428,7 +1493,7 @@ begin
   LogMsg(Msg);
   if (Pos('[STREAM CLIENT ERRO]', Msg) > 0) or (Pos('Falha ao conectar', Msg) > 0) then begin
     SendFailureLogToServer('STREAM_ERROR', Msg);
-    if FRemoteViewer <> nil then
+    if (FRemoteViewer <> nil) and (FRelayClient = nil) then
       FRemoteViewer.SetErrorMessage(Msg);
   end;
 end;

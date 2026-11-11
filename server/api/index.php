@@ -17,9 +17,9 @@ catch (Throwable) { send_error(503,'CONFIGURATION_ERROR','Configuracao indisponi
 $local=getenv('APP_ENV')==='development' && in_array($_SERVER['REMOTE_ADDR']??'',['127.0.0.1','::1'],true);
 if (!$local && ($_SERVER['HTTPS']??'')!=='on')
     send_error(400,'HTTPS_REQUIRED','HTTPS obrigatório.');
-if ((int)($_SERVER['CONTENT_LENGTH']??0)>131072) send_error(413,'PAYLOAD_TOO_LARGE','Corpo excedente.');
-$raw=file_get_contents('php://input',false,null,0,131073);
-if ($raw===false || strlen($raw)>131072) send_error(413,'PAYLOAD_TOO_LARGE','Corpo excedente.');
+if ((int)($_SERVER['CONTENT_LENGTH']??0)>1048576) send_error(413,'PAYLOAD_TOO_LARGE','Corpo excedente.');
+$raw=file_get_contents('php://input',false,null,0,1048577);
+if ($raw===false || strlen($raw)>1048576) send_error(413,'PAYLOAD_TOO_LARGE','Corpo excedente.');
 $body=[];
 if ($raw!=='') {
     if (strtolower(trim(explode(';',$_SERVER['CONTENT_TYPE']??'')[0]))!=='application/json')

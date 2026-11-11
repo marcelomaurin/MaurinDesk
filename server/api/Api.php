@@ -159,6 +159,129 @@ final class Api {
             'expires_at'=>gmdate('Y-m-d\TH:i:s\Z',$this->now+45),
             'next_endpoint_update_seconds'=>15,'reachability'=>'unverified'];
     }
+
+    private const CANDIDATE_PORTS = [7071, 8080, 8443, 9876, 5900];
+
+    private function getPortStatus(array $session): array {
+        $r = null;
+        try {
+            $r = $this->run('SELECT * FROM session_ports WHERE session_id=?', [$session['id']])->fetch();
+        } catch (\Throwable) {}
+        if (!$r) {
+            return [
+                'current_port' => 7071,
+                'port_status' => 'probing',
+                'use_relay' => false,
+                'tried_ports' => [],
+                'candidate_ports' => self::CANDIDATE_PORTS
+            ];
+        }
+        return [
+            'current_port' => (int)$r['current_port'],
+            'port_status' => (string)$r['port_status'],
+            'use_relay' => (bool)$r['use_relay'],
+            'tried_ports' => json_decode($r['tried_ports'] ?? '[]', true) ?: [],
+            'candidate_ports' => self::CANDIDATE_PORTS
+        ];
+    }
+
+    private function handlePortNegotiation(array $session, array $body): array {
+        $action = $body['action'] ?? '';
+        $r = null;
+        try {
+            $r = $this->run('SELECT * FROM session_ports WHERE session_id=?', [$session['id']])->fetch();
+        } catch (\Throwable) {}
+        $tried = $r ? (json_decode($r['tried_ports'] ?? '[]', true) ?: []) : [];
+
+        if ($action === 'port_success') {
+            $port = (int)($body['port'] ?? 7071);
+            $this->savePortStatus($session['id'], $port, 'connected', 0, $tried);
+            return ['status' => 'connected', 'current_port' => $port, 'use_relay' => false];
+        }
+
+        if ($action === 'use_relay') {
+            $this->savePortStatus($session['id'], 0, 'relay', 1, $tried);
+            return ['status' => 'use_relay', 'current_port' => 0, 'use_relay' => true];
+        }
+
+        // report_failed
+        $failedPort = (int)($body['failed_port'] ?? ($r['current_port'] ?? 7071));
+        if ($failedPort > 0 && !in_array($failedPort, $tried, true)) {
+            $tried[] = $failedPort;
+        }
+
+        // Encontra a proxima porta candidata
+        $nextPort = null;
+        foreach (self::CANDIDATE_PORTS as $candidate) {
+            if (!in_array($candidate, $tried, true)) {
+                $nextPort = $candidate;
+                break;
+            }
+        }
+
+        if ($nextPort !== null) {
+            $this->savePortStatus($session['id'], $nextPort, 'probing', 0, $tried);
+            return ['status' => 'probing', 'current_port' => $nextPort, 'use_relay' => false, 'tried_ports' => $tried];
+        }
+
+        // Todas as portas candidatas falharam: ativa o servidor como ponte (Relay)!
+        $this->savePortStatus($session['id'], 0, 'relay', 1, $tried);
+        return ['status' => 'use_relay', 'current_port' => 0, 'use_relay' => true, 'tried_ports' => $tried];
+    }
+
+    private function savePortStatus(string $sessionId, int $port, string $status, int $relay, array $tried): void {
+        $triedJson = json_encode(array_values($tried));
+        $upsert = $this->mysql
+            ? 'ON DUPLICATE KEY UPDATE current_port=VALUES(current_port), port_status=VALUES(port_status), use_relay=VALUES(use_relay), tried_ports=VALUES(tried_ports), updated_at=VALUES(updated_at)'
+            : 'ON CONFLICT(session_id) DO UPDATE SET current_port=excluded.current_port, port_status=excluded.port_status, use_relay=excluded.use_relay, tried_ports=excluded.tried_ports, updated_at=excluded.updated_at';
+        try {
+            $this->run('INSERT INTO session_ports(session_id, current_port, port_status, use_relay, tried_ports, updated_at) VALUES(?,?,?,?,?,?) ' . $upsert,
+                [$sessionId, $port, $status, $relay, $triedJson, $this->now]);
+        } catch (\Throwable) {}
+    }
+
+    private function postRelayFrame(array $session, string $deviceId, array $body): array {
+        if ($session['host_id'] !== $deviceId) $this->fail(403, 'FORBIDDEN', 'Apenas o host transmite a tela.');
+        $frameId = (int)($body['frame_id'] ?? 0);
+        $frameData = (string)($body['frame_data'] ?? '');
+        if ($frameData === '') $this->fail(400, 'VALIDATION_ERROR', 'Dados do quadro vazios.');
+
+        $upsert = $this->mysql
+            ? 'ON DUPLICATE KEY UPDATE frame_id=VALUES(frame_id), frame_data=VALUES(frame_data), updated_at=VALUES(updated_at)'
+            : 'ON CONFLICT(session_id) DO UPDATE SET frame_id=excluded.frame_id, frame_data=excluded.frame_data, updated_at=excluded.updated_at';
+        $this->run('INSERT INTO session_relay_frames(session_id, frame_id, frame_data, updated_at) VALUES(?,?,?,?) ' . $upsert,
+            [$session['id'], $frameId, $frameData, $this->now]);
+        return ['status' => 'ok', 'frame_id' => $frameId];
+    }
+
+    private function getRelayFrame(array $session): array {
+        $row = $this->run('SELECT frame_id, frame_data, updated_at FROM session_relay_frames WHERE session_id=?', [$session['id']])->fetch();
+        if (!$row) return ['status' => 'no_frame', 'frame_id' => 0, 'frame_data' => ''];
+        return ['status' => 'ok', 'frame_id' => (int)$row['frame_id'], 'frame_data' => $row['frame_data'], 'updated_at' => (int)$row['updated_at']];
+    }
+
+    private function postRelayInput(array $session, string $deviceId, array $body): array {
+        if ($session['requester_id'] !== $deviceId) $this->fail(403, 'FORBIDDEN', 'Apenas o controlador envia comandos.');
+        $events = $body['events'] ?? [];
+        if (!is_array($events)) $this->fail(400, 'VALIDATION_ERROR', 'Array de eventos esperado.');
+        foreach ($events as $ev) {
+            $this->run('INSERT INTO session_relay_inputs(session_id, event_data, created_at) VALUES(?,?,?)',
+                [$session['id'], json_encode($ev), $this->now]);
+        }
+        return ['status' => 'ok', 'count' => count($events)];
+    }
+
+    private function getRelayInput(array $session, string $deviceId): array {
+        if ($session['host_id'] !== $deviceId) $this->fail(403, 'FORBIDDEN', 'Apenas o host consome comandos de entrada.');
+        $rows = $this->run('SELECT id, event_data FROM session_relay_inputs WHERE session_id=? ORDER BY id ASC LIMIT 50', [$session['id']])->fetchAll();
+        if ($rows) {
+            $ids = array_column($rows, 'id');
+            $inClause = implode(',', array_map('intval', $ids));
+            $this->run("DELETE FROM session_relay_inputs WHERE id IN ($inClause)");
+        }
+        return ['events' => array_map(fn($r) => json_decode($r['event_data'], true), $rows)];
+    }
+
     private function peerEndpoint(array $session,string $device): array {
         if (in_array($session['state'],['expired','closed','cancelled','rejected'],true))
             $this->fail(410,'SESSION_ENDED','Sessao encerrada ou expirada.');
@@ -170,8 +293,18 @@ final class Api {
             AND d.last_seen>? AND d.token_expires>?',
             [$peer,$this->now-45,$this->now-45,$this->now])->fetch();
         if (!$endpoint) $this->fail(409,'PEER_UNAVAILABLE','O outro computador nao anunciou uma porta recente.');
+
+        $portRow = null;
+        try {
+            $portRow = $this->run('SELECT current_port, port_status, use_relay, tried_ports FROM session_ports WHERE session_id=?', [$session['id']])->fetch();
+        } catch (\Throwable) {}
+        $negotiatedPort = ($portRow && (int)$portRow['current_port'] > 0) ? (int)$portRow['current_port'] : (int)$endpoint['port'];
+        $portStatus = $portRow ? (string)$portRow['port_status'] : 'probing';
+        $useRelay = $portRow ? ((int)$portRow['use_relay'] === 1) : false;
+
         return ['session_id'=>$session['id'],'peer_device_id'=>$peer,'peer_key'=>$endpoint['public_key'],
-            'observed_ip'=>$endpoint['observed_ip'],'local_ip'=>$endpoint['local_ip']??null,'port'=>(int)$endpoint['port'],
+            'observed_ip'=>$endpoint['observed_ip'],'local_ip'=>$endpoint['local_ip']??null,'port'=>$negotiatedPort,
+            'port_status'=>$portStatus,'use_relay'=>$useRelay,
             'transport'=>$endpoint['transport'],'reachability'=>'unverified',
             'endpoint_expires_at'=>gmdate('Y-m-d\TH:i:s\Z',(int)$endpoint['updated_at']+45),
             'session_expires_at'=>gmdate('Y-m-d\TH:i:s\Z',(int)$session['expires_at']),
@@ -313,10 +446,16 @@ final class Api {
                 $rows=$this->run("SELECT * FROM sessions WHERE host_id=? AND state='pending' ORDER BY created_at,id LIMIT 100",
                     [$device['id']])->fetchAll();
                 $data=['items'=>array_map(fn($s)=>$this->view($s),$rows),'server_time'=>gmdate('c',$this->now)];
-            } elseif (preg_match('#^/sessions/([a-f0-9-]{36})(?:/(decision|cancel|close|peer))?$#D',$path,$m)) {
+            } elseif (preg_match('#^/sessions/([a-f0-9-]{36})(?:/(decision|cancel|close|peer|port|relay_frame|relay_input))?$#D',$path,$m)) {
                 $s=$this->session($m[1],$device['id']); $action=$m[2]??'';
                 if ($method==='GET' && $action==='') $data=$this->view($s);
                 elseif ($method==='GET' && $action==='peer') $data=$this->peerEndpoint($s,$device['id']);
+                elseif ($method==='GET' && $action==='port') $data=$this->getPortStatus($s);
+                elseif ($method==='POST' && $action==='port') $data=$this->handlePortNegotiation($s,$body);
+                elseif ($method==='POST' && $action==='relay_frame') $data=$this->postRelayFrame($s,$device['id'],$body);
+                elseif ($method==='GET' && $action==='relay_frame') $data=$this->getRelayFrame($s);
+                elseif ($method==='POST' && $action==='relay_input') $data=$this->postRelayInput($s,$device['id'],$body);
+                elseif ($method==='GET' && $action==='relay_input') $data=$this->getRelayInput($s,$device['id']);
                 elseif ($method==='POST' && $action==='close') {
                     if (in_array($s['state'],['pending','accepted','connecting','active'],true)) {
                         $reason=$this->text($body,'reason',80);

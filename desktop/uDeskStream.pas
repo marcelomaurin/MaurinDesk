@@ -13,12 +13,15 @@ uses
 type
   TFrameEvent = procedure(Sender: TObject; FrameBmp: Graphics.TBitmap; FrameId: Cardinal) of object;
   TStreamLogEvent = procedure(Sender: TObject; const Msg: string) of object;
+  TFallbackRelayEvent = procedure(Sender: TObject) of object;
+  TPortSuccessEvent = procedure(Sender: TObject; APort: Integer) of object;
 
   { Servidor de streaming do Host: captura a tela e recebe controles }
   TDeskStreamServer = class(TThread)
   private
     FPort: Integer;
     FListeningSocket: TSocket;
+    FListenSockets: array of TSocket;
     FClientSocket: TSocket;
     FCanControl: Boolean;
     FQuality: Integer;
@@ -52,10 +55,15 @@ type
     FLatestFrameId: Cardinal;
     FOnFrame: TFrameEvent;
     FOnLog: TStreamLogEvent;
+    FOnFallbackToRelay: TFallbackRelayEvent;
+    FOnPortSuccess: TPortSuccessEvent;
+    FSyncPort: Integer;
     FSyncLogMsg: string;
     FSendLock: TRTLCriticalSection;
     procedure Log(const S: string);
     procedure DoSyncLog;
+    procedure DoSyncFallbackRelay;
+    procedure DoSyncPortSuccess;
     procedure SyncFrame;
     function TryConnectTo(const TargetIP: string; TargetPort, TimeoutMs: Integer): TSocket;
     function SendAll(const ABuffer; ACount: Integer): Boolean;
@@ -73,6 +81,8 @@ type
     property Connected: Boolean read FConnected;
     property OnFrame: TFrameEvent read FOnFrame write FOnFrame;
     property OnLog: TStreamLogEvent read FOnLog write FOnLog;
+    property OnFallbackToRelay: TFallbackRelayEvent read FOnFallbackToRelay write FOnFallbackToRelay;
+    property OnPortSuccess: TPortSuccessEvent read FOnPortSuccess write FOnPortSuccess;
   end;
 
 function GetLocalIPAddress: string;
@@ -211,6 +221,8 @@ begin
 end;
 
 procedure TDeskStreamServer.StopServer;
+var
+  I: Integer;
 begin
   FRunning := False;
   if FClientSocket <> INVALID_SOCKET then
@@ -223,6 +235,15 @@ begin
     closesocket(FListeningSocket);
     FListeningSocket := INVALID_SOCKET;
   end;
+  for I := 0 to High(FListenSockets) do
+  begin
+    if FListenSockets[I] <> INVALID_SOCKET then
+    begin
+      closesocket(FListenSockets[I]);
+      FListenSockets[I] := INVALID_SOCKET;
+    end;
+  end;
+  SetLength(FListenSockets, 0);
   Terminate;
 end;
 
@@ -335,38 +356,69 @@ var
   PktType: Byte;
   Hdr: TFrameHeader;
   FrameCounter: Cardinal;
+  PortsToBind: array[0..2] of Integer;
+  CurPort, PIdx, I, Res: Integer;
+  Sock: TSocket;
+  FDSet: TFDSet;
+  TimeVal: TTimeVal;
+  PortAlreadyBound: Boolean;
 begin
   if WSAStartup($0202, WSAData) <> 0 then Exit;
 
   try
-    FListeningSocket := socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if FListeningSocket = INVALID_SOCKET then
+    SetLength(FListenSockets, 0);
+    PortsToBind[0] := FPort;
+    PortsToBind[1] := 8080;
+    PortsToBind[2] := 9876;
+
+    for PIdx := 0 to 2 do
     begin
-      Log('[STREAM SERVER ERRO] Falha ao criar socket de escuta.');
+      CurPort := PortsToBind[PIdx];
+      if CurPort <= 0 then Continue;
+
+      // Evita duplicar portas
+      PortAlreadyBound := False;
+      for I := 0 to PIdx - 1 do
+        if PortsToBind[I] = CurPort then
+        begin
+          PortAlreadyBound := True;
+          Break;
+        end;
+      if PortAlreadyBound then Continue;
+
+      Sock := socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+      if Sock = INVALID_SOCKET then Continue;
+
+      OptVal := 1;
+      setsockopt(Sock, SOL_SOCKET, SO_REUSEADDR, PAnsiChar(@OptVal), SizeOf(OptVal));
+
+      FillChar(Addr, SizeOf(Addr), 0);
+      Addr.sin_family := AF_INET;
+      Addr.sin_port := htons(CurPort);
+      Addr.sin_addr.s_addr := INADDR_ANY;
+
+      if bind(Sock, Addr, SizeOf(Addr)) = 0 then
+      begin
+        if listen(Sock, 2) = 0 then
+        begin
+          SetLength(FListenSockets, Length(FListenSockets) + 1);
+          FListenSockets[High(FListenSockets)] := Sock;
+          Log('[STREAM SERVER] Escutando na porta TCP ' + IntToStr(CurPort) + '...');
+        end
+        else
+          closesocket(Sock);
+      end
+      else
+        closesocket(Sock);
+    end;
+
+    if Length(FListenSockets) = 0 then
+    begin
+      Log('[STREAM SERVER ERRO] Não foi possível escutar em nenhuma porta candidata.');
       Exit;
     end;
 
-    OptVal := 1;
-    setsockopt(FListeningSocket, SOL_SOCKET, SO_REUSEADDR, PAnsiChar(@OptVal), SizeOf(OptVal));
-
-    FillChar(Addr, SizeOf(Addr), 0);
-    Addr.sin_family := AF_INET;
-    Addr.sin_port := htons(FPort);
-    Addr.sin_addr.s_addr := INADDR_ANY;
-
-    if bind(FListeningSocket, Addr, SizeOf(Addr)) <> 0 then
-    begin
-      Log('[STREAM SERVER ERRO] Falha no bind da porta ' + IntToStr(FPort) + ' (Erro ' + IntToStr(WSAGetLastError) + '). Talvez já esteja em uso.');
-      Exit;
-    end;
-
-    if listen(FListeningSocket, 1) <> 0 then
-    begin
-      Log('[STREAM SERVER ERRO] Falha no listen da porta ' + IntToStr(FPort) + ' (Erro ' + IntToStr(WSAGetLastError) + ').');
-      Exit;
-    end;
-
-    Log('[STREAM SERVER] Servidor escutando na porta ' + IntToStr(FPort) + ' (IP Local: ' + GetLocalIPAddress + '). Aguardando conexão...');
+    Log('[STREAM SERVER] Servidor pronto para conexões (IP Local: ' + GetLocalIPAddress + ').');
 
     FrameCounter := 0;
     Magic := DESK_MAGIC;
@@ -375,11 +427,30 @@ begin
     try
       while FRunning and not Terminated do
       begin
-        // Aguarda conexão do controlador
-        FillChar(ClientAddr, SizeOf(ClientAddr), 0);
-        ClientAddrLen := SizeOf(ClientAddr);
-        FClientSocket := accept(FListeningSocket, @ClientAddr, @ClientAddrLen);
-        if FClientSocket = INVALID_SOCKET then Break;
+        // Aguarda conexão de cliente em qualquer uma das portas escutadas
+        FillChar(FDSet, SizeOf(FDSet), 0);
+        for I := 0 to High(FListenSockets) do
+          FD_SET(FListenSockets[I], FDSet);
+
+        TimeVal.tv_sec := 0;
+        TimeVal.tv_usec := 250000; // 250ms
+
+        Res := select(0, @FDSet, nil, nil, @TimeVal);
+        if Res <= 0 then Continue;
+
+        FClientSocket := INVALID_SOCKET;
+        for I := 0 to High(FListenSockets) do
+        begin
+          if FD_ISSET(FListenSockets[I], FDSet) then
+          begin
+            FillChar(ClientAddr, SizeOf(ClientAddr), 0);
+            ClientAddrLen := SizeOf(ClientAddr);
+            FClientSocket := accept(FListenSockets[I], @ClientAddr, @ClientAddrLen);
+            Break;
+          end;
+        end;
+
+        if FClientSocket = INVALID_SOCKET then Continue;
 
         ClientIPStr := string(inet_ntoa(ClientAddr.sin_addr));
         Log('[STREAM SERVER SUCESSO] Cliente conectado a partir de ' + ClientIPStr + '! Iniciando transmissão de tela...');
@@ -433,11 +504,15 @@ begin
       JpegStream.Free;
     end;
   finally
-    if FListeningSocket <> INVALID_SOCKET then
+    for I := 0 to High(FListenSockets) do
     begin
-      closesocket(FListeningSocket);
-      FListeningSocket := INVALID_SOCKET;
+      if FListenSockets[I] <> INVALID_SOCKET then
+      begin
+        closesocket(FListenSockets[I]);
+        FListenSockets[I] := INVALID_SOCKET;
+      end;
     end;
+    SetLength(FListenSockets, 0);
     WSACleanup;
     Log('[STREAM SERVER] Servidor de streaming finalizado.');
   end;
@@ -478,6 +553,18 @@ procedure TDeskStreamClient.DoSyncLog;
 begin
   if Assigned(FOnLog) then
     FOnLog(Self, FSyncLogMsg);
+end;
+
+procedure TDeskStreamClient.DoSyncFallbackRelay;
+begin
+  if Assigned(FOnFallbackToRelay) then
+    FOnFallbackToRelay(Self);
+end;
+
+procedure TDeskStreamClient.DoSyncPortSuccess;
+begin
+  if Assigned(FOnPortSuccess) then
+    FOnPortSuccess(Self, FSyncPort);
 end;
 
 procedure TDeskStreamClient.StopClient;
@@ -620,7 +707,8 @@ var
   FirstFrameLogged: Boolean;
   IPList: TStringList;
   CandidateIP: string;
-  I: Integer;
+  CandidatePorts: array[0..2] of Integer;
+  PIdx, I, ConnectedPort: Integer;
 begin
   if WSAStartup($0202, WSAData) <> 0 then
   begin
@@ -629,7 +717,12 @@ begin
   end;
 
   try
-    // 1. Se informou IP(s) local(is), tenta conectar diretamente na LAN (timeout 2s por IP)
+    CandidatePorts[0] := FPort;
+    CandidatePorts[1] := 8080;
+    CandidatePorts[2] := 9876;
+    ConnectedPort := FPort;
+
+    // 1. Se informou IP(s) local(is), tenta conectar na LAN em todas as portas candidatas
     if (FLocalIP <> '') and (FLocalIP <> '127.0.0.1') and (FLocalIP <> FHost) then
     begin
       IPList := TStringList.Create;
@@ -641,36 +734,58 @@ begin
         begin
           CandidateIP := Trim(IPList[I]);
           if (CandidateIP = '') or (CandidateIP = '127.0.0.1') then Continue;
-          Log('[STREAM CLIENT] Tentando conexão direta na rede local: ' + CandidateIP + ':' + IntToStr(FPort) + '...');
-          FSocket := TryConnectTo(CandidateIP, FPort, 2000);
-          if FSocket <> INVALID_SOCKET then
+
+          for PIdx := 0 to 2 do
           begin
-            Log('[STREAM CLIENT SUCESSO] Conectado via rede local (' + CandidateIP + ':' + IntToStr(FPort) + ')!');
-            Break;
+            if not FRunning or Terminated then Break;
+            Log('[STREAM CLIENT] Testando conexão LAN: ' + CandidateIP + ':' + IntToStr(CandidatePorts[PIdx]) + '...');
+            FSocket := TryConnectTo(CandidateIP, CandidatePorts[PIdx], 1200);
+            if FSocket <> INVALID_SOCKET then
+            begin
+              ConnectedPort := CandidatePorts[PIdx];
+              Log('[STREAM CLIENT SUCESSO] Conectado via rede local (' + CandidateIP + ':' + IntToStr(ConnectedPort) + ')!');
+              Break;
+            end;
           end;
+          if FSocket <> INVALID_SOCKET then Break;
         end;
       finally
         IPList.Free;
       end;
     end;
 
-    // 2. Se a conexao local nao teve sucesso ou nao existia IP local, tenta IP publico / remoto
+    // 2. Se a conexao local nao teve sucesso, tenta o endereço público em todas as portas candidatas
     if FSocket = INVALID_SOCKET then
     begin
-      Log('[STREAM CLIENT] Tentando conexão via endereço público: ' + FHost + ':' + IntToStr(FPort) + '...');
-      FSocket := TryConnectTo(FHost, FPort, 5000);
-      if FSocket <> INVALID_SOCKET then
-        Log('[STREAM CLIENT SUCESSO] Conectado via endereço público (' + FHost + ':' + IntToStr(FPort) + ')!')
-      else
+      for PIdx := 0 to 2 do
       begin
-        Log('[STREAM CLIENT ERRO] Falha ao conectar ao host (' + FHost + ':' + IntToStr(FPort) + '). Verifique se a porta TCP 9876 está liberada no firewall do Windows.');
-        Exit;
+        if not FRunning or Terminated then Break;
+        Log('[STREAM CLIENT] Testando conexão pública: ' + FHost + ':' + IntToStr(CandidatePorts[PIdx]) + '...');
+        FSocket := TryConnectTo(FHost, CandidatePorts[PIdx], 2500);
+        if FSocket <> INVALID_SOCKET then
+        begin
+          ConnectedPort := CandidatePorts[PIdx];
+          Log('[STREAM CLIENT SUCESSO] Conectado via endereço público (' + FHost + ':' + IntToStr(ConnectedPort) + ')!');
+          Break;
+        end;
       end;
     end;
 
+    // 3. Se nenhuma porta P2P respondeu, aciona automaticamente o Modo Ponte (Servidor Relay)
+    if FSocket = INVALID_SOCKET then
+    begin
+      Log('[STREAM CLIENT AVISO] Nenhuma porta P2P direta respondeu (' + FHost + ').');
+      Log('[STREAM CLIENT AVISO] Acionando Modo Ponte automático através do Servidor...');
+      Synchronize(@DoSyncFallbackRelay);
+      Exit;
+    end;
+
     FConnected := True;
+    FSyncPort := ConnectedPort;
+    Synchronize(@DoSyncPortSuccess);
+
     FirstFrameLogged := False;
-    Log('[STREAM CLIENT] Conexão de streaming ativa! Aguardando quadros de tela...');
+    Log('[STREAM CLIENT] Conexão de streaming ativa na porta ' + IntToStr(ConnectedPort) + '! Aguardando quadros de tela...');
 
     JpegStream := TMemoryStream.Create;
     Jpg := TJPEGImage.Create;

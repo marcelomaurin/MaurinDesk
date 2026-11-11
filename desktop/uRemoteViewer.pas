@@ -6,13 +6,14 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, ExtCtrls, StdCtrls, Buttons,
-  uDeskStream, uDeskProtocol, uDeskI18n;
+  uDeskStream, uDeskRelay, uDeskProtocol, uDeskI18n;
 
 type
   { Janela do visualizador da área de trabalho remota }
   TfRemoteViewer = class(TForm)
   private
     FStreamClient: TDeskStreamClient;
+    FRelayClient: TDeskRelayClient;
     FRemoteBmp: TBitmap;
     FTopBar: TPanel;
     FPaintBox: TPaintBox;
@@ -46,6 +47,8 @@ type
   public
     constructor CreateViewer(AOwner: TComponent; const ARemoteKey: string; ACanControl: Boolean; AStreamClient: TDeskStreamClient);
     destructor Destroy; override;
+    procedure SetRelayClient(ARelayClient: TDeskRelayClient);
+    procedure SetPortConnected(APort: Integer);
     procedure SetErrorMessage(const Msg: string);
     property OnCloseSession: TNotifyEvent read FOnCloseSession write FOnCloseSession;
   end;
@@ -144,9 +147,34 @@ destructor TfRemoteViewer.Destroy;
 begin
   if FStreamClient <> nil then
     FStreamClient.OnFrame := nil;
+  if FRelayClient <> nil then
+    FRelayClient.OnFrame := nil;
   if FRemoteBmp <> nil then
     FreeAndNil(FRemoteBmp);
   inherited Destroy;
+end;
+
+procedure TfRemoteViewer.SetRelayClient(ARelayClient: TDeskRelayClient);
+begin
+  FRelayClient := ARelayClient;
+  if FRelayClient <> nil then
+  begin
+    FRelayClient.OnFrame := @HandleFrameReceived;
+    FErrorMessage := '';
+    FStatusLabel.Caption := '● ' + _T(strViewerConnectedTo) + FRemoteKey + ' (Modo Ponte / Servidor)';
+    FStatusLabel.Font.Color := RGBToColor(59, 130, 246);
+    FFPSLabel.Caption := 'Ponte HTTP';
+    FFPSLabel.Font.Color := RGBToColor(59, 130, 246);
+    FPaintBox.Invalidate;
+  end;
+end;
+
+procedure TfRemoteViewer.SetPortConnected(APort: Integer);
+begin
+  FErrorMessage := '';
+  FStatusLabel.Caption := '● ' + _T(strViewerConnectedTo) + FRemoteKey + ' (P2P Porta ' + IntToStr(APort) + ')';
+  FStatusLabel.Font.Color := RGBToColor(34, 197, 94);
+  FPaintBox.Invalidate;
 end;
 
 procedure TfRemoteViewer.DoClose(var CloseAction: TCloseAction);
@@ -226,7 +254,7 @@ begin
   FPaintBox.Canvas.Brush.Color := $1E1E2E;
   FPaintBox.Canvas.FillRect(0, 0, FPaintBox.Width, FPaintBox.Height);
 
-  if FErrorMessage <> '' then
+  if (FErrorMessage <> '') and (FRelayClient = nil) then
   begin
     BoxX := (FPaintBox.Width - 620) div 2;
     BoxY := (FPaintBox.Height - 260) div 2;
@@ -297,9 +325,14 @@ procedure TfRemoteViewer.PaintBoxMouseMove(Sender: TObject; Shift: TShiftState; 
 var
   NormX, NormY: Word;
 begin
-  if not FCanControl or (FStreamClient = nil) then Exit;
+  if not FCanControl then Exit;
   if ScreenToRemote(X, Y, NormX, NormY) then
-    FStreamClient.SendMouseMove(NormX, NormY);
+  begin
+    if FRelayClient <> nil then
+      FRelayClient.SendMouseMove(NormX, NormY)
+    else if FStreamClient <> nil then
+      FStreamClient.SendMouseMove(NormX, NormY);
+  end;
 end;
 
 procedure TfRemoteViewer.PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -307,7 +340,7 @@ var
   NormX, NormY: Word;
   BtnCode: Byte;
 begin
-  if not FCanControl or (FStreamClient = nil) then Exit;
+  if not FCanControl then Exit;
   if ScreenToRemote(X, Y, NormX, NormY) then
   begin
     case Button of
@@ -317,7 +350,10 @@ begin
     else
       Exit;
     end;
-    FStreamClient.SendMouseButton(BtnCode, True, NormX, NormY);
+    if FRelayClient <> nil then
+      FRelayClient.SendMouseButton(BtnCode, True, NormX, NormY)
+    else if FStreamClient <> nil then
+      FStreamClient.SendMouseButton(BtnCode, True, NormX, NormY);
   end;
 end;
 
@@ -326,7 +362,7 @@ var
   NormX, NormY: Word;
   BtnCode: Byte;
 begin
-  if not FCanControl or (FStreamClient = nil) then Exit;
+  if not FCanControl then Exit;
   if ScreenToRemote(X, Y, NormX, NormY) then
   begin
     case Button of
@@ -336,27 +372,39 @@ begin
     else
       Exit;
     end;
-    FStreamClient.SendMouseButton(BtnCode, False, NormX, NormY);
+    if FRelayClient <> nil then
+      FRelayClient.SendMouseButton(BtnCode, False, NormX, NormY)
+    else if FStreamClient <> nil then
+      FStreamClient.SendMouseButton(BtnCode, False, NormX, NormY);
   end;
 end;
 
 procedure TfRemoteViewer.PaintBoxMouseWheel(Sender: TObject; Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
 begin
-  if not FCanControl or (FStreamClient = nil) then Exit;
-  FStreamClient.SendMouseWheel(SmallInt(WheelDelta));
+  if not FCanControl then Exit;
+  if FRelayClient <> nil then
+    FRelayClient.SendMouseWheel(SmallInt(WheelDelta))
+  else if FStreamClient <> nil then
+    FStreamClient.SendMouseWheel(SmallInt(WheelDelta));
   Handled := True;
 end;
 
 procedure TfRemoteViewer.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
-  if not FCanControl or (FStreamClient = nil) then Exit;
-  FStreamClient.SendKeyEvent(Key, True);
+  if not FCanControl then Exit;
+  if FRelayClient <> nil then
+    FRelayClient.SendKey(Key, True)
+  else if FStreamClient <> nil then
+    FStreamClient.SendKeyEvent(Key, True);
 end;
 
 procedure TfRemoteViewer.FormKeyUp(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
-  if not FCanControl or (FStreamClient = nil) then Exit;
-  FStreamClient.SendKeyEvent(Key, False);
+  if not FCanControl then Exit;
+  if FRelayClient <> nil then
+    FRelayClient.SendKey(Key, False)
+  else if FStreamClient <> nil then
+    FStreamClient.SendKeyEvent(Key, False);
 end;
 
 procedure TfRemoteViewer.BtnFitClick(Sender: TObject);

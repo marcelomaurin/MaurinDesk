@@ -7,7 +7,7 @@ use Throwable;
 
 /** Ordered migrations. VERSAO changes only after successful schema changes. */
 final class Schema {
-    public const VERSION='0.5';
+    public const VERSION='0.6';
     public static function migrate(PDO $db): void {
         $mysql=$db->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql';
         $lock=false; $lockName='maurindesk_schema';
@@ -53,6 +53,9 @@ final class Schema {
                 '0.5'=>['descricao'=>'Tabela de logs e diagnosticos de falhas do cliente',
                     'repairable'=>true,
                     'files'=>$mysql ? ['006_device_logs.mysql.sql'] : ['006_device_logs.sqlite.sql']],
+                '0.6'=>['descricao'=>'Negociacao dinamica de portas P2P e servidor como ponte (relay)',
+                    'repairable'=>true,
+                    'files'=>$mysql ? ['007_session_relay.mysql.sql'] : ['007_session_relay.sqlite.sql']],
             ];
             foreach ($migrations as $version=>$migration) {
                 // Baseline CREATE IF NOT EXISTS also restores missing tables.
