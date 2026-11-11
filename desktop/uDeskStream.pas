@@ -79,6 +79,35 @@ function GetLocalIPAddress: string;
 
 implementation
 
+function GetRouteLocalIP: string;
+var
+  UdpSock: TSocket;
+  TargetAddr, BoundAddr: sockaddr_in;
+  BoundLen: LongInt;
+begin
+  Result := '';
+  UdpSock := socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if UdpSock = INVALID_SOCKET then Exit;
+  try
+    FillChar(TargetAddr, SizeOf(TargetAddr), 0);
+    TargetAddr.sin_family := AF_INET;
+    TargetAddr.sin_port := htons(53);
+    TargetAddr.sin_addr.s_addr := inet_addr('8.8.8.8');
+    if connect(UdpSock, TargetAddr, SizeOf(TargetAddr)) = 0 then
+    begin
+      FillChar(BoundAddr, SizeOf(BoundAddr), 0);
+      BoundLen := SizeOf(BoundAddr);
+      if getsockname(UdpSock, BoundAddr, BoundLen) = 0 then
+      begin
+        Result := string(inet_ntoa(BoundAddr.sin_addr));
+        if (Result = '0.0.0.0') or (Result = '127.0.0.1') then Result := '';
+      end;
+    end;
+  finally
+    closesocket(UdpSock);
+  end;
+end;
+
 function GetLocalIPAddress: string;
 {$IFDEF WINDOWS}
 var
@@ -87,7 +116,7 @@ var
   HostEnt: PHostEnt;
   I: Integer;
   CurAddr: PInAddr;
-  IPStr, PriIPs, SecIPs: string;
+  IPStr, PriIPs, SecIPs, RouteIP: string;
 begin
   Result := '127.0.0.1';
   PriIPs := '';
@@ -95,6 +124,11 @@ begin
   if WSAStartup($0202, WSAData) = 0 then
   begin
     try
+      // Obtem o IP real ativo na placa conectada ao gateway/internet
+      RouteIP := GetRouteLocalIP;
+      if RouteIP <> '' then
+        PriIPs := RouteIP;
+
       if GetHostName(HostName, SizeOf(HostName)) = 0 then
       begin
         HostEnt := GetHostByName(HostName);
@@ -105,8 +139,8 @@ begin
           begin
             CurAddr := PInAddr(HostEnt^.h_addr_list[I]);
             IPStr := string(inet_ntoa(CurAddr^));
-            // Ignora loopback e link-local APIPA (169.254.x.x)
-            if (IPStr <> '127.0.0.1') and not (Copy(IPStr, 1, 8) = '169.254.') then
+            // Ignora loopback, link-local APIPA (169.254.x.x) e o proprio RouteIP
+            if (IPStr <> '127.0.0.1') and not (Copy(IPStr, 1, 8) = '169.254.') and (IPStr <> RouteIP) then
             begin
               // 172.x.x.x e 192.168.x.x sao prioridade maxima (intranets e LANs de suporte)
               if (Copy(IPStr, 1, 4) = '172.') or (Copy(IPStr, 1, 8) = '192.168.') then

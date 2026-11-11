@@ -4,7 +4,7 @@ interface
 uses Classes, SysUtils, Forms, Controls, StdCtrls, ExtCtrls, Dialogs,
   Graphics, Menus, Clipbrd, IniFiles, md5,
   fpjson, jsonparser, airemoteidentity, airemotesignaling,
-  uDeskProtocol, uScreenCapture, uDeskStream, uRemoteViewer, uDeskI18n;
+  uDeskProtocol, uScreenCapture, uDeskStream, uRemoteViewer, uDeskI18n, uDeskFirewall;
 
 type
   TMainForm = class;
@@ -342,6 +342,7 @@ var
   Prefix: string;
   SepLine: TPanel;
   MI: TMenuItem;
+  NeedsElev: Boolean;
 begin
   inherited CreateNew(AOwner);
   Caption := 'MaurinDesk v0.5.0 — Conexão Remota Assistida';
@@ -905,6 +906,15 @@ begin
   LogMsg('MaurinDesk v0.5.0 (Build 2026-11-11) inicializado.');
   LogMsg('Servidor configurado: ' + FURL);
   LogMsg('Perfil local: ' + FProfile);
+
+  // Assegura automaticamente as regras do Windows Firewall (porta 9876 e binário)
+  if EnsureFirewallRule(NeedsElev) then begin
+    if NeedsElev then
+      LogMsg('[FIREWALL] Solicitada liberação automática do Windows Firewall (UAC).')
+    else
+      LogMsg('[FIREWALL] Porta TCP 9876 e aplicativo liberados no Windows Firewall.');
+  end else
+    LogMsg('[FIREWALL AVISO] Não foi possível registrar regras no Windows Firewall.');
 
   // Polling timer
   FTimer := TTimer.Create(Self);

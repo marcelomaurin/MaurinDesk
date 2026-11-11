@@ -5,7 +5,7 @@
   <General><Flags><MainUnitHasCreateFormStatements Value="True"/><MainUnitHasTitleStatement Value="True"/><MainUnitHasScaledStatement Value="False"/></Flags><MainUnit Value="0"/><Title Value="MaurinDesk"/></General>
   <BuildModes Count="1"><Item1 Name="Default" Default="True"/></BuildModes>
   <RequiredPackages Count="1"><Item1><PackageName Value="LCL"/></Item1></RequiredPackages>
-  <Units Count="7">
+  <Units Count="8">
    <Unit0><Filename Value="MaurinDesk.lpr"/><IsPartOfProject Value="True"/></Unit0>
    <Unit1><Filename Value="umain.pas"/><IsPartOfProject Value="True"/></Unit1>
    <Unit2><Filename Value="uDeskProtocol.pas"/><IsPartOfProject Value="True"/></Unit2>
@@ -13,6 +13,7 @@
    <Unit4><Filename Value="uDeskStream.pas"/><IsPartOfProject Value="True"/></Unit4>
    <Unit5><Filename Value="uRemoteViewer.pas"/><IsPartOfProject Value="True"/></Unit5>
    <Unit6><Filename Value="uDeskI18n.pas"/><IsPartOfProject Value="True"/></Unit6>
+   <Unit7><Filename Value="uDeskFirewall.pas"/><IsPartOfProject Value="True"/></Unit7>
   </Units>
  </ProjectOptions>
  <CompilerOptions>
