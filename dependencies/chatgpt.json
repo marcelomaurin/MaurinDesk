@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/marcelomaurin/CHATGPT",
+  "commit": "dcf80078485290fb3eea56cdee2af56dde6912cc",
+  "path": "../CHATGPT",
+  "units": [
+    "pacote/AI Communication/AIRemoteDesktop"
+  ],
+  "package": "openai_remote_desktop",
+  "validated": {
+    "lazarus": "4.6",
+    "fpc": "3.2.2",
+    "target": "x86_64-win64"
+  }
+}

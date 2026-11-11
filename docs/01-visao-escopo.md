@@ -1,4 +1,6 @@
 # Visão e escopo
+
+> Especificação original 0.1. Consulte [andamento 0.2.0](10-implementacao.md) para código entregue, testes e pendências atuais.
 Versão 0.1 — 11/11/2026 — especificação para implementação.
 
 ## Objetivo

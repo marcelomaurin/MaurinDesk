@@ -1,6 +1,6 @@
 # Contrato proposto de API v1
 
-**Especificação; rotas ainda não implementadas ou publicadas.** Base: `https://maurinsoft.com.br/maurindesk/api/v1/`.
+**Contrato alvo. A implementação 0.2.0 cobre um subconjunto; veja [andamento](10-implementacao.md). A API oficial ainda não foi publicada.** Base: `https://maurinsoft.com.br/maurindesk/api/v1/`.
 
 ## Convenções
 JSON UTF-8, HTTPS, sem cookies de sessão web. `Authorization: Bearer <token>` nas rotas privadas. Token nunca vai em URL. Chave pública: string com regex `^[0-9]{10}$`. IDs de dispositivo/sessão são UUIDs opacos. Horários RFC3339 UTC. Respostas privadas: `Cache-Control: no-store`. CORS desabilitado por padrão (cliente nativo). SQL parametrizado.

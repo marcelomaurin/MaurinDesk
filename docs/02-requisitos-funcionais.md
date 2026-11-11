@@ -1,6 +1,6 @@
 # Requisitos funcionais
 
-Todos os requisitos abaixo são planejados; nenhum é declarado implementado.
+Requisitos do produto completo. O estado da implementação de cada área está em [andamento](10-implementacao.md).
 
 | ID | Requisito | Aceite verificável |
 |---|---|---|

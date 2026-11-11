@@ -2,7 +2,7 @@
 
 Acesso remoto assistido, inspirado no fluxo de uso do AnyDesk, com cliente desktop Lazarus/Free Pascal e servidor PHP exclusivamente de APIs.
 
-**Estado em 11/11/2026: especificação inicial. Não há cliente, servidor executável ou acesso remoto implementado nesta entrega.**
+**Estado em 11/11/2026: versão inicial 0.2.0 implementada. API de identidade/presença/consentimento e desktop Lazarus compilado. Transmissão de tela e controle remoto ainda não implementados.**
 
 ## Funcionamento previsto
 
@@ -31,15 +31,16 @@ O servidor PHP não terá páginas, painel ou interface de acesso remoto no nave
 | [Plano e validação](docs/07-plano-validacao.md) | Etapas e testes de aceite |
 | [Implantação](docs/08-implantacao.md) | Requisitos do servidor e publicação futura |
 | [Registro de decisões](docs/09-decisoes.md) | Motivos e pendências técnicas |
+| [Implementação 0.2.0](docs/10-implementacao.md) | Código entregue, evidências e pendências atuais |
 
-## Organização planejada
+## Código e compilação
 
 - `desktop/`: projeto Lazarus, formulários, favoritos e identidade visual MaurinDesk.
 - `server/php/`: API, migrações, configuração e testes.
 - `docs/`: especificação e evidências de validação.
 - [CHATGPT](https://github.com/marcelomaurin/CHATGPT): componentes Pascal reutilizáveis de captura, entrada remota, transporte e sessão.
 
-Essas pastas de implementação serão criadas nas etapas correspondentes. A biblioteca CHATGPT é um framework de componentes Lazarus; o acesso remoto não depende de um modelo de IA nem do envio da tela a um provedor de IA.
+Consulte [desktop/README.md](desktop/README.md) para compilar e [server/php/README.md](server/php/README.md) para executar a API. O [andamento](docs/10-implementacao.md) distingue código validado e pendências. A biblioteca CHATGPT é um framework de componentes Lazarus; o acesso remoto não depende de um modelo de IA nem do envio da tela a um provedor de IA.
 
 ## Estado da infraestrutura
 

@@ -1,5 +1,7 @@
 # Integração com a biblioteca CHATGPT
 
+> Especificação original 0.1. Consulte [andamento 0.2.0](10-implementacao.md) para código entregue, testes e pendências atuais.
+
 ## Regra de propriedade
 Código Pascal genérico com utilidade fora do MaurinDesk deve ser implementado em [CHATGPT](https://github.com/marcelomaurin/CHATGPT). O MaurinDesk consome os pacotes; não mantém cópias divergentes. O servidor PHP e as regras específicas do produto permanecem no MaurinDesk.
 

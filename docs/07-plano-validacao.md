@@ -41,4 +41,4 @@ M1 e M2 podem avançar independentemente após congelar contrato v1. M3 depende 
 Cada marco terá relatório com data, versões, commits dos dois repositórios, procedimento, resultado esperado/obtido e limitações. Testes automatizados devem cobrir protocolo/API; captura e entrada exigem também validação em desktop real ou VM interativa. Não declarar suporte a UAC, Wayland ou outro backend por inferência.
 
 ## Estado atual
-M0: documentos preparados nesta entrega. M1–M5: pendentes. Nenhuma compilação ou teste de acesso remoto foi realizado nesta etapa documental.
+M0 concluído. M1, M2 e M3 iniciados parcialmente na versão 0.2.0; M4 e M5 pendentes. Compilação e testes de API/consentimento executados; transmissão e controle ainda indisponíveis. Consulte [evidências](10-implementacao.md).

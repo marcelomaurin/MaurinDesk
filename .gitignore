@@ -1,0 +1,12 @@
+.env
+*.sqlite
+*.sqlite-*
+*.db
+desktop/lib/
+desktop/backup/
+desktop/*.exe
+desktop/*.compiled
+desktop/*.lps
+build/
+bin/
+*.bak
