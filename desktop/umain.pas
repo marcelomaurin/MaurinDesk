@@ -249,6 +249,11 @@ begin
               Identity.Add('public_key', R.Get('public_key', ''));
               AIRemoteSaveSecret(IdentityFile, Identity.AsJSON);
               Data := TJSONObject(R.Clone);
+              try
+                J := C.AnnounceEndpoint(DEFAULT_DESK_PORT, 'tcp', GetLocalIPAddress);
+                J.Free;
+              except
+              end;
             finally
               R.Free;
             end;
@@ -260,6 +265,11 @@ begin
         opPoll: begin
           J := C.Heartbeat;
           J.Free;
+          try
+            J := C.AnnounceEndpoint(DEFAULT_DESK_PORT, 'tcp', GetLocalIPAddress);
+            J.Free;
+          except
+          end;
           Data := C.Incoming;
           if SessionId <> '' then begin
             J := C.GetSession(SessionId);
@@ -269,6 +279,8 @@ begin
                 R := C.GetPeerEndpoint(SessionId);
                 Data.Add('peer_endpoint', R);
               except
+                on E: Exception do
+                  Data.Add('peer_endpoint_error', E.Message);
               end;
             end;
           end;
@@ -468,11 +480,23 @@ begin
 
   FStatusMsgLabel := TLabel.Create(Self);
   FStatusMsgLabel.Parent := FStatusBar;
-  FStatusMsgLabel.SetBounds(360, 6, 600, 16);
+  FStatusMsgLabel.SetBounds(360, 6, 500, 16);
   FStatusMsgLabel.Caption := 'Pronto.';
   FStatusMsgLabel.Font.Size := 8;
   FStatusMsgLabel.Font.Color := RGBToColor(100, 116, 139);
   FStatusMsgLabel.Transparent := True;
+
+  with TLabel.Create(Self) do begin
+    Parent := FStatusBar;
+    Align := alRight;
+    Alignment := taRightJustify;
+    Width := 160;
+    Caption := 'MaurinDesk v0.3.0  ';
+    Font.Size := 9;
+    Font.Style := [fsBold];
+    Font.Color := RGBToColor(220, 38, 38);
+    Transparent := True;
+  end;
 
   // -------------------------------------------------------------
   // 3. LEFT SIDEBAR ("This Desk" / "Este Computador")
@@ -493,15 +517,25 @@ begin
 
   FDeskTitle := TLabel.Create(Self);
   FDeskTitle.Parent := FSidebar;
-  FDeskTitle.SetBounds(18, 16, 200, 22);
+  FDeskTitle.SetBounds(18, 14, 200, 22);
   FDeskTitle.Caption := 'Este Computador';
   FDeskTitle.Font.Size := 13;
   FDeskTitle.Font.Style := [fsBold];
   FDeskTitle.Font.Color := RGBToColor(229, 57, 53);
 
+  with TLabel.Create(Self) do begin
+    Parent := FSidebar;
+    SetBounds(18, 36, 200, 16);
+    Caption := '● Software v0.3.0 (Build 2026-11-11)';
+    Font.Size := 8;
+    Font.Style := [fsBold];
+    Font.Color := RGBToColor(14, 165, 233);
+    Transparent := True;
+  end;
+
   FDeskSubtitle := TLabel.Create(Self);
   FDeskSubtitle.Parent := FSidebar;
-  FDeskSubtitle.SetBounds(18, 40, 195, 34);
+  FDeskSubtitle.SetBounds(18, 54, 195, 30);
   FDeskSubtitle.Caption := 'Seu computador pode ser acessado por este endereço.';
   FDeskSubtitle.Font.Size := 8;
   FDeskSubtitle.Font.Color := RGBToColor(100, 116, 139);
@@ -510,7 +544,7 @@ begin
   // AnyDesk ID Box
   FKeyBox := TPanel.Create(Self);
   FKeyBox.Parent := FSidebar;
-  FKeyBox.SetBounds(18, 80, 200, 48);
+  FKeyBox.SetBounds(18, 88, 200, 48);
   FKeyBox.BevelOuter := bvNone;
   FKeyBox.Color := RGBToColor(255, 245, 245);
   FKeyBox.Cursor := crHandPoint;
@@ -536,13 +570,13 @@ begin
 
   FBtnRegister := TButton.Create(Self);
   FBtnRegister.Parent := FSidebar;
-  FBtnRegister.SetBounds(18, 136, 200, 30);
+  FBtnRegister.SetBounds(18, 142, 200, 30);
   FBtnRegister.Caption := 'Registrar / Obter Chave';
   FBtnRegister.OnClick := @RegisterClick;
 
   FSidebarStatus := TLabel.Create(Self);
   FSidebarStatus.Parent := FSidebar;
-  FSidebarStatus.SetBounds(18, 174, 200, 18);
+  FSidebarStatus.SetBounds(18, 178, 200, 18);
   FSidebarStatus.Caption := '● Não conectado';
   FSidebarStatus.Font.Size := 8;
   FSidebarStatus.Font.Color := RGBToColor(156, 163, 175);
@@ -557,10 +591,19 @@ begin
   with TLabel.Create(Self) do begin
     Parent := FBannerPanel;
     SetBounds(16, 12, 200, 20);
-    Caption := 'MaurinDesk 0.3.0';
+    Caption := 'MaurinDesk v0.3.0';
     Font.Size := 11;
     Font.Style := [fsBold];
     Font.Color := clWhite;
+    Transparent := True;
+  end;
+
+  with TLabel.Create(Self) do begin
+    Parent := FBannerPanel;
+    SetBounds(16, 32, 200, 16);
+    Caption := 'Build: 2026-11-11 | Stream Ativo';
+    Font.Size := 8;
+    Font.Color := RGBToColor(254, 226, 226);
     Transparent := True;
   end;
   with TLabel.Create(Self) do begin
@@ -823,7 +866,7 @@ begin
   LoadFavorites;
 
   // Initial Log messages
-  LogMsg('MaurinDesk 0.3.0 inicializado.');
+  LogMsg('MaurinDesk v0.3.0 (Build 2026-11-11) inicializado.');
   LogMsg('Servidor configurado: ' + FURL);
   LogMsg('Perfil local: ' + FProfile);
 
@@ -1143,8 +1186,12 @@ begin
             FRemoteViewer.Show;
             FStreamClient.Start;
             LogMsg('[VIEWER] Janela do visualizador remoto aberta!');
-          end else
-            LogMsg('[STREAM] Aguardando o host anunciar seu endpoint de rede...');
+          end else begin
+            if W.Data.Find('peer_endpoint_error') <> nil then
+              LogMsg('[STREAM] Aguardando endpoint do host: ' + W.Data.Get('peer_endpoint_error', ''))
+            else
+              LogMsg('[STREAM] Aguardando o host anunciar seu endpoint de rede...');
+          end;
         end;
 
         if (State = 'closed') or (State = 'expired') or (State = 'rejected') or (State = 'cancelled') then begin

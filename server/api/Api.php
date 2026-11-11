@@ -251,6 +251,8 @@ final class Api {
                 $data=$this->publishEndpoint($device,$body,$ip);
             } elseif ($method==='POST' && $path==='/devices/heartbeat') {
                 $this->run('UPDATE devices SET last_seen=? WHERE id=?',[$this->now,$device['id']]);
+                $this->run("UPDATE sessions SET expires_at=? WHERE (requester_id=? OR host_id=?) AND state IN ('accepted','connecting','active')",
+                    [$this->now+600,$device['id'],$device['id']]);
                 $data=['server_time'=>gmdate('Y-m-d\TH:i:s\Z',$this->now),'next_heartbeat_seconds'=>15];
             } elseif ($method==='GET' && $path==='/desktop') {
                 $data=(new DesktopData($this->db,$this->now))->dashboard($device);
@@ -317,7 +319,7 @@ final class Api {
                                 [$device['id']])->fetch()) $this->fail(409,'HOST_BUSY','Host ocupado.');
                         }
                     }
-                    $expires=$state==='accepted'?$this->now+30:(int)$s['expires_at'];
+                    $expires=$state==='accepted'?$this->now+600:(int)$s['expires_at'];
                     $this->run('UPDATE sessions SET state=?,granted=?,expires_at=?,ended_at=? WHERE id=?',
                         [$state,json_encode($granted),$expires,$state==='accepted'?null:$this->now,$s['id']]);
                     $this->audit('session.'.$state,$device['id'],$s['id']);
