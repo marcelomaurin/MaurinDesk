@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, ExtCtrls, StdCtrls, Buttons,
-  uDeskStream, uDeskProtocol;
+  uDeskStream, uDeskProtocol, uDeskI18n;
 
 type
   { Janela do visualizador da área de trabalho remota }
@@ -26,6 +26,7 @@ type
     FFrameCount: Integer;
     FLastFPSTime: QWord;
     FRemoteKey: string;
+    FErrorMessage: string;
     FOnCloseSession: TNotifyEvent;
     procedure PaintBoxPaint(Sender: TObject);
     procedure PaintBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
@@ -45,6 +46,7 @@ type
   public
     constructor CreateViewer(AOwner: TComponent; const ARemoteKey: string; ACanControl: Boolean; AStreamClient: TDeskStreamClient);
     destructor Destroy; override;
+    procedure SetErrorMessage(const Msg: string);
     property OnCloseSession: TNotifyEvent read FOnCloseSession write FOnCloseSession;
   end;
 
@@ -62,7 +64,7 @@ begin
   FLastFPSTime := GetTickCount64;
   FRemoteBmp := TBitmap.Create;
 
-  Caption := 'MaurinDesk - Conexão Ativa: ' + ARemoteKey;
+  Caption := _T(strViewerActiveConnection) + ARemoteKey;
   Width := 1024;
   Height := 720;
   Position := poScreenCenter;
@@ -83,7 +85,7 @@ begin
   FStatusLabel.Top := 12;
   FStatusLabel.Font.Color := $CDD6F4;
   FStatusLabel.Font.Style := [fsBold];
-  FStatusLabel.Caption := '● Conectado a: ' + ARemoteKey;
+  FStatusLabel.Caption := _T(strViewerConnectedTo) + ARemoteKey;
 
   FFPSLabel := TLabel.Create(Self);
   FFPSLabel.Parent := FTopBar;
@@ -98,7 +100,7 @@ begin
   FBtnFit.Top := 7;
   FBtnFit.Width := 130;
   FBtnFit.Height := 28;
-  FBtnFit.Caption := 'Ajustar à Janela';
+  FBtnFit.Caption := _T(strViewerFitWindow);
   FBtnFit.OnClick := @BtnFitClick;
 
   FBtnFullScreen := TSpeedButton.Create(Self);
@@ -107,7 +109,7 @@ begin
   FBtnFullScreen.Top := 7;
   FBtnFullScreen.Width := 110;
   FBtnFullScreen.Height := 28;
-  FBtnFullScreen.Caption := 'Tela Cheia';
+  FBtnFullScreen.Caption := _T(strViewerFullScreen);
   FBtnFullScreen.OnClick := @BtnFullScreenClick;
 
   FBtnDisconnect := TBitBtn.Create(Self);
@@ -116,7 +118,7 @@ begin
   FBtnDisconnect.Top := 7;
   FBtnDisconnect.Width := 120;
   FBtnDisconnect.Height := 28;
-  FBtnDisconnect.Caption := 'Desconectar';
+  FBtnDisconnect.Caption := _T(strViewerDisconnect);
   FBtnDisconnect.Font.Color := clRed;
   FBtnDisconnect.Font.Style := [fsBold];
   FBtnDisconnect.OnClick := @BtnDisconnectClick;
@@ -206,12 +208,57 @@ begin
   Result := True;
 end;
 
+procedure TfRemoteViewer.SetErrorMessage(const Msg: string);
+begin
+  FErrorMessage := Msg;
+  FStatusLabel.Caption := '● ' + _T(strErrConnectionFailed);
+  FStatusLabel.Font.Color := RGBToColor(239, 68, 68);
+  FFPSLabel.Caption := 'DESCONECTADO';
+  FFPSLabel.Font.Color := RGBToColor(239, 68, 68);
+  FPaintBox.Invalidate;
+end;
+
 procedure TfRemoteViewer.PaintBoxPaint(Sender: TObject);
 var
   DestR: TRect;
+  BoxX, BoxY: Integer;
 begin
   FPaintBox.Canvas.Brush.Color := $1E1E2E;
   FPaintBox.Canvas.FillRect(0, 0, FPaintBox.Width, FPaintBox.Height);
+
+  if FErrorMessage <> '' then
+  begin
+    BoxX := (FPaintBox.Width - 620) div 2;
+    BoxY := (FPaintBox.Height - 260) div 2;
+    if BoxX < 10 then BoxX := 10;
+    if BoxY < 10 then BoxY := 10;
+
+    // Fundo do alerta
+    FPaintBox.Canvas.Brush.Color := $28181F;
+    FPaintBox.Canvas.Pen.Color := $EF4444;
+    FPaintBox.Canvas.Rectangle(BoxX, BoxY, BoxX + 620, BoxY + 250);
+
+    FPaintBox.Canvas.Font.Size := 12;
+    FPaintBox.Canvas.Font.Style := [fsBold];
+    FPaintBox.Canvas.Font.Color := $EF4444;
+    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 20, '⚠ ' + _T(strErrConnectionFailed));
+
+    FPaintBox.Canvas.Font.Size := 9;
+    FPaintBox.Canvas.Font.Style := [];
+    FPaintBox.Canvas.Font.Color := $FFFFFF;
+    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 52, Copy(FErrorMessage, 1, 80));
+
+    FPaintBox.Canvas.Font.Color := $A6ADC8;
+    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 84, '• Verifique se a máquina remota está conectada e online.');
+    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 106, '• Verifique se a porta TCP 9876 está liberada no Firewall do host.');
+    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 128, '• Em redes locais, tente informar o IP direto (ex: 172.17.x.x ou 192.168.x.x).');
+    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 150, '• O log foi registrado e enviado ao servidor para diagnóstico.');
+
+    FPaintBox.Canvas.Font.Style := [fsBold];
+    FPaintBox.Canvas.Font.Color := $F59E0B;
+    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 195, 'Clique no botão vermelho "Desconectar" acima para fechar.');
+    Exit;
+  end;
 
   if (FRemoteBmp <> nil) and (FRemoteBmp.Width > 0) and (FRemoteBmp.Height > 0) then
   begin
@@ -220,9 +267,10 @@ begin
   end
   else
   begin
+    FPaintBox.Canvas.Font.Size := 10;
     FPaintBox.Canvas.Font.Color := $A6ADC8;
-    FPaintBox.Canvas.TextOut((FPaintBox.Width div 2) - 100, (FPaintBox.Height div 2) - 10,
-      'Aguardando transmissão da tela remota...');
+    FPaintBox.Canvas.TextOut((FPaintBox.Width div 2) - 130, (FPaintBox.Height div 2) - 10,
+      _T(strViewerWaiting));
   end;
 end;
 
@@ -315,9 +363,9 @@ procedure TfRemoteViewer.BtnFitClick(Sender: TObject);
 begin
   FFitToWindow := not FFitToWindow;
   if FFitToWindow then
-    FBtnFit.Caption := 'Ajustar à Janela'
+    FBtnFit.Caption := _T(strViewerFitWindow)
   else
-    FBtnFit.Caption := 'Tamanho Real (1:1)';
+    FBtnFit.Caption := _T(strViewerOriginalSize);
   FPaintBox.Invalidate;
 end;
 
@@ -326,13 +374,13 @@ begin
   if WindowState = wsFullScreen then
   begin
     WindowState := wsNormal;
-    FBtnFullScreen.Caption := 'Tela Cheia';
+    FBtnFullScreen.Caption := _T(strViewerFullScreen);
     FTopBar.Visible := True;
   end
   else
   begin
     WindowState := wsFullScreen;
-    FBtnFullScreen.Caption := 'Sair da Tela Cheia';
+    FBtnFullScreen.Caption := _T(strViewerExitFullScreen);
   end;
 end;
 

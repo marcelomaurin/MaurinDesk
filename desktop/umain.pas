@@ -4,11 +4,11 @@ interface
 uses Classes, SysUtils, Forms, Controls, StdCtrls, ExtCtrls, Dialogs,
   Graphics, Menus, Clipbrd, IniFiles, md5,
   fpjson, jsonparser, airemoteidentity, airemotesignaling,
-  uDeskProtocol, uScreenCapture, uDeskStream, uRemoteViewer;
+  uDeskProtocol, uScreenCapture, uDeskStream, uRemoteViewer, uDeskI18n;
 
 type
   TMainForm = class;
-  TOperation = (opRegister, opPoll, opConnect, opAcceptView, opAcceptControl, opReject, opClose, opHealth);
+  TOperation = (opRegister, opPoll, opConnect, opAcceptView, opAcceptControl, opReject, opClose, opHealth, opSendLog);
 
   { TAPIWorker }
   TAPIWorker = class(TThread)
@@ -20,6 +20,7 @@ type
   public
     Operation: TOperation;
     URL, Token, IdentityFile, RemoteKey, SessionId, Failure: string;
+    LogCategory, LogMessage, LogContent: string;
     AllowLocal, Control: Boolean;
     Data: TJSONObject;
     constructor Create(AOwner: TMainForm);
@@ -43,9 +44,11 @@ type
     FTopBar: TPanel;
     FLogoBox: TPaintBox;
     FTabPanel: TPanel;
+    FTabLabel: TLabel;
     FTopSearchPanel: TPanel;
     FTopSearchEdit: TEdit;
     FTopConnectBtn: TPanel;
+    FBtnLang: TButton;
     FBtnSettings: TButton;
 
     // Sidebar Controls
@@ -58,6 +61,10 @@ type
     FBtnRegister: TButton;
     FSidebarStatus: TLabel;
     FBannerPanel: TPanel;
+    FBannerTitleLabel: TLabel;
+    FBannerBuildLabel: TLabel;
+    FBannerTagLabel: TLabel;
+    FBannerWebLabel: TLabel;
 
     // Main Content Controls
     FContentArea: TPanel;
@@ -97,8 +104,9 @@ type
     FLogHeader: TPanel;
     FLogTitleLabel: TLabel;
     FBtnTestConn: TButton;
-    FBtnClearLog: TButton;
+    FBtnSendLog: TButton;
     FBtnCopyLog: TButton;
+    FBtnClearLog: TButton;
     FLogMemo: TMemo;
 
     // Status Bar
@@ -122,6 +130,10 @@ type
     procedure StopClick(Sender: TObject);
     procedure SaveFavClick(Sender: TObject);
     procedure SettingsClick(Sender: TObject);
+    procedure BtnLangClick(Sender: TObject);
+    procedure SendLogClick(Sender: TObject);
+    procedure SendFailureLogToServer(const Category, Message: string);
+    procedure ApplyLanguage;
     procedure KeyBoxClick(Sender: TObject);
     procedure TestConnClick(Sender: TObject);
     procedure ClearLogClick(Sender: TObject);
@@ -238,7 +250,7 @@ begin
                 Identity.Get('registration_secret', ''),
                 GetEnvironmentVariable('COMPUTERNAME'),
                 'windows',
-                '0.4.0'
+                '0.5.0'
               );
             end;
             try
@@ -307,6 +319,7 @@ begin
         opReject: Data := C.Decide(SessionId, False, False);
         opClose: Data := C.CloseSession(SessionId, 'local_stop');
         opHealth: Data := C.Health;
+        opSendLog: Data := C.SendDiagnosticLog(LogCategory, LogMessage, LogContent, SessionId);
       end;
     except
       on E: EAIRemoteAPI do begin
@@ -331,7 +344,7 @@ var
   MI: TMenuItem;
 begin
   inherited CreateNew(AOwner);
-  Caption := 'MaurinDesk v0.4.0 — Conexão Remota Assistida';
+  Caption := 'MaurinDesk v0.5.0 — Conexão Remota Assistida';
   SetBounds(100, 60, 980, 680);
   Constraints.MinWidth := 860;
   Constraints.MinHeight := 580;
@@ -396,14 +409,13 @@ begin
   FTabPanel.SetBounds(48, 6, 155, 38);
   FTabPanel.BevelOuter := bvNone;
   FTabPanel.Color := clWhite;
-  with TLabel.Create(Self) do begin
-    Parent := FTabPanel;
-    SetBounds(14, 10, 115, 20);
-    Caption := 'Nova Conexão';
-    Font.Style := [fsBold];
-    Font.Color := RGBToColor(30, 41, 59);
-    Transparent := True;
-  end;
+  FTabLabel := TLabel.Create(Self);
+  FTabLabel.Parent := FTabPanel;
+  FTabLabel.SetBounds(14, 10, 125, 20);
+  FTabLabel.Caption := 'Nova Conexão';
+  FTabLabel.Font.Style := [fsBold];
+  FTabLabel.Font.Color := RGBToColor(30, 41, 59);
+  FTabLabel.Transparent := True;
 
   // Top Search/Address Bar
   FTopSearchPanel := TPanel.Create(Self);
@@ -426,8 +438,7 @@ begin
   FTopSearchEdit.SetBounds(28, 4, 350, 24);
   FTopSearchEdit.BorderStyle := bsNone;
   FTopSearchEdit.Font.Size := 10;
-  FTopSearchEdit.TextHint := 'Informe o ID MaurinDesk ou Apelido';
-  FTopSearchEdit.MaxLength := 10;
+  FTopSearchEdit.TextHint := 'Chave Desk ou IP Remoto...';
 
   FTopConnectBtn := TPanel.Create(Self);
   FTopConnectBtn.Parent := FTopSearchPanel;
@@ -446,10 +457,18 @@ begin
     OnClick := @TopConnectClick;
   end;
 
+  // Language Button
+  FBtnLang := TButton.Create(Self);
+  FBtnLang.Parent := FTopBar;
+  FBtnLang.SetBounds(740, 6, 80, 32);
+  FBtnLang.Anchors := [akTop, akRight];
+  FBtnLang.Caption := '🌐 PT';
+  FBtnLang.OnClick := @BtnLangClick;
+
   // Settings Button on right
   FBtnSettings := TButton.Create(Self);
   FBtnSettings.Parent := FTopBar;
-  FBtnSettings.SetBounds(830, 6, 130, 32);
+  FBtnSettings.SetBounds(825, 6, 135, 32);
   FBtnSettings.Anchors := [akTop, akRight];
   FBtnSettings.Caption := '⚙ Config Servidor';
   FBtnSettings.OnClick := @SettingsClick;
@@ -492,7 +511,7 @@ begin
     Align := alRight;
     Alignment := taRightJustify;
     Width := 160;
-    Caption := 'MaurinDesk v0.4.0  ';
+    Caption := 'MaurinDesk v0.5.0  ';
     Font.Size := 9;
     Font.Style := [fsBold];
     Font.Color := RGBToColor(220, 38, 38);
@@ -526,8 +545,8 @@ begin
 
   with TLabel.Create(Self) do begin
     Parent := FSidebar;
-    SetBounds(18, 36, 200, 16);
-    Caption := '● Software v0.4.0 (Build 2026-11-11)';
+    SetBounds(18, 36, 204, 16);
+    Caption := '● Software v0.5.0 (Build 2026-11-11)';
     Font.Size := 8;
     Font.Style := [fsBold];
     Font.Color := RGBToColor(14, 165, 233);
@@ -536,7 +555,7 @@ begin
 
   FDeskSubtitle := TLabel.Create(Self);
   FDeskSubtitle.Parent := FSidebar;
-  FDeskSubtitle.SetBounds(18, 54, 195, 30);
+  FDeskSubtitle.SetBounds(18, 54, 204, 32);
   FDeskSubtitle.Caption := 'Seu computador pode ser acessado por este endereço.';
   FDeskSubtitle.Font.Size := 8;
   FDeskSubtitle.Font.Color := RGBToColor(100, 116, 139);
@@ -585,37 +604,44 @@ begin
   FBannerPanel := TPanel.Create(Self);
   FBannerPanel.Parent := FSidebar;
   FBannerPanel.Align := alBottom;
-  FBannerPanel.Height := 95;
+  FBannerPanel.Height := 115;
   FBannerPanel.BevelOuter := bvNone;
   FBannerPanel.Color := RGBToColor(239, 68, 68);
 
-  with TLabel.Create(Self) do begin
-    Parent := FBannerPanel;
-    SetBounds(16, 12, 200, 20);
-    Caption := 'MaurinDesk v0.4.0';
-    Font.Size := 11;
-    Font.Style := [fsBold];
-    Font.Color := clWhite;
-    Transparent := True;
-  end;
+  FBannerTitleLabel := TLabel.Create(Self);
+  FBannerTitleLabel.Parent := FBannerPanel;
+  FBannerTitleLabel.SetBounds(16, 10, 208, 20);
+  FBannerTitleLabel.Caption := 'MaurinDesk v0.5.0';
+  FBannerTitleLabel.Font.Size := 11;
+  FBannerTitleLabel.Font.Style := [fsBold];
+  FBannerTitleLabel.Font.Color := clWhite;
+  FBannerTitleLabel.Transparent := True;
 
-  with TLabel.Create(Self) do begin
-    Parent := FBannerPanel;
-    SetBounds(16, 32, 200, 16);
-    Caption := 'Build: 2026-11-11 | Stream Ativo';
-    Font.Size := 8;
-    Font.Color := RGBToColor(254, 226, 226);
-    Transparent := True;
-  end;
-  with TLabel.Create(Self) do begin
-    Parent := FBannerPanel;
-    SetBounds(16, 34, 200, 34);
-    Caption := 'Acesso remoto assistido e seguro.'#13#10'maurinsoft.com.br';
-    Font.Size := 8;
-    Font.Color := RGBToColor(254, 226, 226);
-    Transparent := True;
-    WordWrap := True;
-  end;
+  FBannerBuildLabel := TLabel.Create(Self);
+  FBannerBuildLabel.Parent := FBannerPanel;
+  FBannerBuildLabel.SetBounds(16, 32, 208, 16);
+  FBannerBuildLabel.Caption := 'Build: 2026-11-11 | Stream Ativo';
+  FBannerBuildLabel.Font.Size := 8;
+  FBannerBuildLabel.Font.Color := RGBToColor(254, 226, 226);
+  FBannerBuildLabel.Transparent := True;
+
+  FBannerTagLabel := TLabel.Create(Self);
+  FBannerTagLabel.Parent := FBannerPanel;
+  FBannerTagLabel.SetBounds(16, 52, 208, 30);
+  FBannerTagLabel.Caption := 'Acesso remoto assistido e seguro.';
+  FBannerTagLabel.Font.Size := 8;
+  FBannerTagLabel.Font.Color := RGBToColor(254, 226, 226);
+  FBannerTagLabel.Transparent := True;
+  FBannerTagLabel.WordWrap := True;
+
+  FBannerWebLabel := TLabel.Create(Self);
+  FBannerWebLabel.Parent := FBannerPanel;
+  FBannerWebLabel.SetBounds(16, 88, 208, 16);
+  FBannerWebLabel.Caption := 'maurinsoft.com.br';
+  FBannerWebLabel.Font.Size := 8;
+  FBannerWebLabel.Font.Style := [fsBold];
+  FBannerWebLabel.Font.Color := clWhite;
+  FBannerWebLabel.Transparent := True;
 
   // -------------------------------------------------------------
   // 4. MAIN RIGHT CONTENT AREA
@@ -688,13 +714,13 @@ begin
   // Card 2: Discovery Card
   FDiscoveryCard := TPanel.Create(Self);
   FDiscoveryCard.Parent := FTopCardsPanel;
-  FDiscoveryCard.SetBounds(435, 10, 265, 135);
+  FDiscoveryCard.SetBounds(435, 10, 310, 135);
   FDiscoveryCard.BevelOuter := bvNone;
   FDiscoveryCard.Color := RGBToColor(25, 118, 210);
 
   FDiscTitle := TLabel.Create(Self);
   FDiscTitle.Parent := FDiscoveryCard;
-  FDiscTitle.SetBounds(16, 12, 200, 20);
+  FDiscTitle.SetBounds(16, 12, 280, 20);
   FDiscTitle.Caption := 'Descoberta / Servidor';
   FDiscTitle.Font.Size := 11;
   FDiscTitle.Font.Style := [fsBold];
@@ -703,7 +729,7 @@ begin
 
   FDiscSubtitle := TLabel.Create(Self);
   FDiscSubtitle.Parent := FDiscoveryCard;
-  FDiscSubtitle.SetBounds(16, 36, 230, 48);
+  FDiscSubtitle.SetBounds(16, 36, 280, 50);
   FDiscSubtitle.Caption := 'Conectado à API MaurinDesk na nuvem. Sessões gerenciadas por consentimento.';
   FDiscSubtitle.Font.Size := 8;
   FDiscSubtitle.Font.Color := RGBToColor(224, 242, 254);
@@ -712,8 +738,8 @@ begin
 
   FDiscServerLabel := TLabel.Create(Self);
   FDiscServerLabel.Parent := FDiscoveryCard;
-  FDiscServerLabel.SetBounds(16, 90, 230, 36);
-  FDiscServerLabel.Caption := 'API: /MaurinDesk/php';
+  FDiscServerLabel.SetBounds(16, 90, 280, 38);
+  FDiscServerLabel.Caption := 'API: /MaurinDesk/api';
   FDiscServerLabel.Font.Size := 8;
   FDiscServerLabel.Font.Color := clWhite;
   FDiscServerLabel.WordWrap := True;
@@ -725,7 +751,7 @@ begin
   FLogPanel := TPanel.Create(Self);
   FLogPanel.Parent := FContentArea;
   FLogPanel.Align := alBottom;
-  FLogPanel.Height := 140;
+  FLogPanel.Height := 155;
   FLogPanel.BevelOuter := bvNone;
   FLogPanel.Color := RGBToColor(241, 245, 249);
 
@@ -738,29 +764,37 @@ begin
 
   FLogTitleLabel := TLabel.Create(Self);
   FLogTitleLabel.Parent := FLogHeader;
-  FLogTitleLabel.SetBounds(12, 6, 280, 16);
-  FLogTitleLabel.Caption := 'REGISTRO DE CONEXÃO & REDE (LOG)';
+  FLogTitleLabel.SetBounds(12, 6, 240, 16);
+  FLogTitleLabel.ShowAccelChar := False;
+  FLogTitleLabel.Caption := 'REGISTRO DE CONEXÃO E REDE (LOG)';
   FLogTitleLabel.Font.Size := 8;
   FLogTitleLabel.Font.Style := [fsBold];
   FLogTitleLabel.Font.Color := RGBToColor(71, 85, 105);
 
   FBtnTestConn := TButton.Create(Self);
   FBtnTestConn.Parent := FLogHeader;
-  FBtnTestConn.SetBounds(420, 2, 115, 24);
+  FBtnTestConn.SetBounds(310, 2, 95, 24);
   FBtnTestConn.Anchors := [akTop, akRight];
   FBtnTestConn.Caption := 'Testar Conexão';
   FBtnTestConn.OnClick := @TestConnClick;
 
+  FBtnSendLog := TButton.Create(Self);
+  FBtnSendLog.Parent := FLogHeader;
+  FBtnSendLog.SetBounds(410, 2, 145, 24);
+  FBtnSendLog.Anchors := [akTop, akRight];
+  FBtnSendLog.Caption := 'Enviar Log ao Servidor';
+  FBtnSendLog.OnClick := @SendLogClick;
+
   FBtnCopyLog := TButton.Create(Self);
   FBtnCopyLog.Parent := FLogHeader;
-  FBtnCopyLog.SetBounds(540, 2, 80, 24);
+  FBtnCopyLog.SetBounds(560, 2, 75, 24);
   FBtnCopyLog.Anchors := [akTop, akRight];
   FBtnCopyLog.Caption := 'Copiar Log';
   FBtnCopyLog.OnClick := @CopyLogClick;
 
   FBtnClearLog := TButton.Create(Self);
   FBtnClearLog.Parent := FLogHeader;
-  FBtnClearLog.SetBounds(625, 2, 75, 24);
+  FBtnClearLog.SetBounds(640, 2, 60, 24);
   FBtnClearLog.Anchors := [akTop, akRight];
   FBtnClearLog.Caption := 'Limpar';
   FBtnClearLog.OnClick := @ClearLogClick;
@@ -865,9 +899,10 @@ begin
 
   UpdateServerLabels;
   LoadFavorites;
+  ApplyLanguage;
 
   // Initial Log messages
-  LogMsg('MaurinDesk v0.4.0 (Build 2026-11-11) inicializado.');
+  LogMsg('MaurinDesk v0.5.0 (Build 2026-11-11) inicializado.');
   LogMsg('Servidor configurado: ' + FURL);
   LogMsg('Perfil local: ' + FProfile);
 
@@ -926,6 +961,7 @@ begin
     Ini := TIniFile.Create(FConfigFile);
     try
       FURL := Ini.ReadString('Server', 'URL', FURL);
+      SetDeskLanguage(StrToDeskLang(Ini.ReadString('General', 'Language', 'pt')));
     finally
       Ini.Free;
     end;
@@ -939,6 +975,7 @@ begin
   Ini := TIniFile.Create(FConfigFile);
   try
     Ini.WriteString('Server', 'URL', FURL);
+    Ini.WriteString('General', 'Language', DeskLangToStr(GetDeskLanguage));
     Ini.UpdateFile;
   finally
     Ini.Free;
@@ -1028,14 +1065,35 @@ begin
 end;
 
 procedure TMainForm.ConnectClick(Sender: TObject);
+var
+  TargetText, CleanTarget: string;
 begin
-  if not AIRemoteValidKey(FTarget.Text) then begin
-    LogMsg('[AVISO] Digite uma chave remota válida com exatamente 10 dígitos.');
-    ShowMessage('Informe uma chave remota válida com exatamente 10 dígitos.');
+  TargetText := Trim(FTarget.Text);
+  CleanTarget := StringReplace(TargetText, ' ', '', [rfReplaceAll]);
+
+  // Se for endereço IP direto (ex: 10.42.0.149 ou 172.17.241.157)
+  if (Pos('.', TargetText) > 0) and not AIRemoteValidKey(CleanTarget) then
+  begin
+    FIsController := True;
+    LogMsg('[CONEXÃO DIRETA] Conectando diretamente ao host IP: ' + TargetText + ':' + IntToStr(DEFAULT_DESK_PORT) + '...');
+    if FStreamClient <> nil then StopStreaming;
+    FStreamClient := TDeskStreamClient.Create(TargetText, DEFAULT_DESK_PORT, TargetText);
+    FStreamClient.OnLog := @HandleStreamLog;
+    FRemoteViewer := TfRemoteViewer.CreateViewer(Self, TargetText, True, FStreamClient);
+    FRemoteViewer.OnCloseSession := @ViewerClosed;
+    FRemoteViewer.Show;
+    FStreamClient.Start;
+    LogMsg('[VIEWER] Janela do visualizador remoto aberta!');
+    Exit;
+  end;
+
+  if not AIRemoteValidKey(CleanTarget) then begin
+    LogMsg('[AVISO] Digite uma chave remota válida com 10 dígitos ou um endereço IP.');
+    ShowMessage('Informe uma chave remota de 10 dígitos (ex: 650 449 1499) ou um IP direto (ex: 172.17.241.150).');
     Exit;
   end;
   FIsController := True;
-  LogMsg('Solicitando conexão para chave: ' + FormatDeskKey(FTarget.Text) + '...');
+  LogMsg('Solicitando conexão para chave: ' + FormatDeskKey(CleanTarget) + '...');
   Start(opConnect);
 end;
 
@@ -1104,6 +1162,7 @@ begin
     opConnect: LogMsg('[REQ] Solicitando sessão para ' + FormatDeskKey(FTarget.Text) + '...');
     opHealth: LogMsg('[REQ] Testando rota /health em: ' + FURL + '...');
     opClose: LogMsg('[REQ] Encerrando sessão ' + Id + '...');
+    opSendLog: LogMsg('[REQ] Enviando relatório de diagnóstico ao servidor...');
   end;
 
   FStatusMsgLabel.Caption := 'Comunicando com o servidor...';
@@ -1122,7 +1181,7 @@ begin
 
   if W.Failure <> '' then begin
     FStatusMsgLabel.Caption := W.Failure;
-    FSidebarStatus.Caption := '● Erro de comunicação';
+    FSidebarStatus.Caption := _T(strStatusCommError);
     FSidebarStatus.Font.Color := RGBToColor(239, 68, 68);
     LogMsg('[FALHA] ' + W.Failure);
 
@@ -1132,6 +1191,9 @@ begin
       LogMsg('[DICA 404] URL não encontrada no servidor. Confira a rota configurada em ⚙ Config Servidor.')
     else if (Pos('12007', W.Failure) > 0) or (Pos('12029', W.Failure) > 0) then
       LogMsg('[DICA REDE] Falha ao conectar ao host. Verifique sua conexão com a internet.');
+
+    if W.Operation <> opSendLog then
+      SendFailureLogToServer('API_ERROR', W.Failure);
 
     Exit;
   end;
@@ -1264,6 +1326,13 @@ begin
       FSidebarStatus.Caption := '● Servidor Online';
       FSidebarStatus.Font.Color := RGBToColor(34, 197, 94);
     end;
+
+    opSendLog: begin
+      if W.Data <> nil then
+        LogMsg(_T(strLogSentSuccess) + Copy(W.Data.Get('id', ''), 1, 8) + '...)')
+      else
+        LogMsg(_T(strLogSentSuccess) + 'OK)');
+    end;
   end;
 end;
 
@@ -1332,13 +1401,86 @@ end;
 procedure TMainForm.HandleStreamLog(Sender: TObject; const Msg: string);
 begin
   LogMsg(Msg);
+  if (Pos('[STREAM CLIENT ERRO]', Msg) > 0) or (Pos('Falha ao conectar', Msg) > 0) then begin
+    SendFailureLogToServer('STREAM_ERROR', Msg);
+    if FRemoteViewer <> nil then
+      FRemoteViewer.SetErrorMessage(Msg);
+  end;
+end;
+
+procedure TMainForm.ApplyLanguage;
+begin
+  Caption := _T(strAppTitle);
+  if FTabLabel <> nil then FTabLabel.Caption := _T(strTabNewConnection);
+  if FBtnSettings <> nil then FBtnSettings.Caption := _T(strBtnSettings);
+  if FBtnLang <> nil then FBtnLang.Caption := '🌐 ' + UpperCase(DeskLangToStr(GetDeskLanguage));
+  if FDeskTitle <> nil then FDeskTitle.Caption := _T(strThisDeskTitle);
+  if FDeskSubtitle <> nil then FDeskSubtitle.Caption := _T(strThisDeskSubtitle);
+  if FBtnRegister <> nil then FBtnRegister.Caption := _T(strBtnRegister);
+  if FRemoteTitle <> nil then FRemoteTitle.Caption := _T(strRemoteDeskTitle);
+  if FRemoteSubtitle <> nil then FRemoteSubtitle.Caption := _T(strRemoteDeskSubtitle);
+  if FTarget <> nil then FTarget.TextHint := _T(strTargetHint);
+  if FBtnConnect <> nil then FBtnConnect.Caption := _T(strBtnConnect);
+  if FBtnSaveFav <> nil then FBtnSaveFav.Caption := _T(strBtnSaveFav);
+  if FDiscTitle <> nil then FDiscTitle.Caption := _T(strDiscoveryTitle);
+  if FDiscSubtitle <> nil then FDiscSubtitle.Caption := _T(strDiscoverySubtitle);
+  if FRecentTitle <> nil then FRecentTitle.Caption := _T(strRecentTitle);
+  if FRecentHint <> nil then FRecentHint.Caption := _T(strRecentHint);
+  if FBtnAcceptControl <> nil then FBtnAcceptControl.Caption := _T(strBtnAcceptControl);
+  if FBtnAcceptView <> nil then FBtnAcceptView.Caption := _T(strBtnAcceptView);
+  if FBtnReject <> nil then FBtnReject.Caption := _T(strBtnReject);
+  if FBtnStop <> nil then FBtnStop.Caption := _T(strBtnEndSession);
+  if FLogTitleLabel <> nil then FLogTitleLabel.Caption := _T(strLogTitle);
+  if FBtnTestConn <> nil then FBtnTestConn.Caption := _T(strBtnTestConn);
+  if FBtnCopyLog <> nil then FBtnCopyLog.Caption := _T(strBtnCopyLog);
+  if FBtnClearLog <> nil then FBtnClearLog.Caption := _T(strBtnClearLog);
+  if FBtnSendLog <> nil then FBtnSendLog.Caption := _T(strBtnSendLog);
+  if FBannerTagLabel <> nil then FBannerTagLabel.Caption := _T(strBannerTagline);
+  if FBannerBuildLabel <> nil then FBannerBuildLabel.Caption := _T(strBannerBuild);
+end;
+
+procedure TMainForm.BtnLangClick(Sender: TObject);
+begin
+  case GetDeskLanguage of
+    dlPortuguese: SetDeskLanguage(dlEnglish);
+    dlEnglish: SetDeskLanguage(dlSpanish);
+    dlSpanish: SetDeskLanguage(dlPortuguese);
+  end;
+  SaveConfig;
+  ApplyLanguage;
+  LogMsg('[IDIOMA] ' + UpperCase(DeskLangToStr(GetDeskLanguage)));
+end;
+
+procedure TMainForm.SendLogClick(Sender: TObject);
+begin
+  LogMsg('[DIAGNÓSTICO] Enviando log de diagnóstico ao servidor...');
+  SendFailureLogToServer('USER_REQUEST', 'Log enviado manualmente pelo usuário');
+end;
+
+procedure TMainForm.SendFailureLogToServer(const Category, Message: string);
+var
+  Worker: TAPIWorker;
+begin
+  if FClosing then Exit;
+  Worker := TAPIWorker.Create(Self);
+  Worker.Operation := opSendLog;
+  Worker.URL := FURL;
+  Worker.Token := FToken;
+  Worker.IdentityFile := FIdentityFile;
+  Worker.SessionId := FSessionId;
+  Worker.AllowLocal := FAllowLocal;
+  Worker.LogCategory := Category;
+  Worker.LogMessage := Copy(Message, 1, 250);
+  Worker.LogContent := FLogMemo.Lines.Text;
+  Worker.FreeOnTerminate := True;
+  Worker.Start;
 end;
 
 procedure TMainForm.SettingsClick(Sender: TObject);
 var
-  NewURL: string;
+  NewURL, LangChoice: string;
 begin
-  NewURL := InputBox('Configuração MaurinDesk', 'Endereço da API do Servidor:', FURL);
+  NewURL := InputBox(_T(strDialogSettingsTitle), _T(strDialogServerPrompt), FURL);
   NewURL := Trim(NewURL);
   if (NewURL <> '') and (NewURL <> FURL) then begin
     FURL := NewURL;
@@ -1350,9 +1492,15 @@ begin
     FToken := '';
     FRawPublicKey := '';
     FKeyTextLabel.Caption := '--- --- ---';
-    FSidebarStatus.Caption := '● Servidor alterado';
+    FSidebarStatus.Caption := _T(strStatusServerChanged);
     LogMsg('[CONFIG] Servidor alterado para: ' + FURL);
-    LogMsg('[CONFIG] Clique em "Testar Conexão" ou "Registrar / Obter Chave" para conectar.');
+  end;
+
+  LangChoice := InputBox(_T(strDialogLanguageTitle), _T(strDialogLanguagePrompt), DeskLangToStr(GetDeskLanguage));
+  if Trim(LangChoice) <> '' then begin
+    SetDeskLanguage(StrToDeskLang(LangChoice));
+    SaveConfig;
+    ApplyLanguage;
   end;
 end;
 

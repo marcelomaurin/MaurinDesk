@@ -87,10 +87,11 @@ var
   HostEnt: PHostEnt;
   I: Integer;
   CurAddr: PInAddr;
-  Candidate, IPStr: string;
+  IPStr, PriIPs, SecIPs: string;
 begin
   Result := '127.0.0.1';
-  Candidate := '';
+  PriIPs := '';
+  SecIPs := '';
   if WSAStartup($0202, WSAData) = 0 then
   begin
     try
@@ -107,21 +108,29 @@ begin
             // Ignora loopback e link-local APIPA (169.254.x.x)
             if (IPStr <> '127.0.0.1') and not (Copy(IPStr, 1, 8) = '169.254.') then
             begin
-              // Se for endereco de rede privada tipico (10., 172., 192.168.), seleciona imediatamente
-              if (Copy(IPStr, 1, 3) = '10.') or
-                 (Copy(IPStr, 1, 4) = '172.') or
-                 (Copy(IPStr, 1, 8) = '192.168.') then
+              // 172.x.x.x e 192.168.x.x sao prioridade maxima (intranets e LANs de suporte)
+              if (Copy(IPStr, 1, 4) = '172.') or (Copy(IPStr, 1, 8) = '192.168.') then
               begin
-                Result := IPStr;
-                Exit;
+                if PriIPs <> '' then PriIPs := PriIPs + ',';
+                PriIPs := PriIPs + IPStr;
+              end
+              else
+              begin
+                if SecIPs <> '' then SecIPs := SecIPs + ',';
+                SecIPs := SecIPs + IPStr;
               end;
-              if Candidate = '' then
-                Candidate := IPStr;
             end;
             Inc(I);
           end;
-          if Candidate <> '' then
-            Result := Candidate;
+          if PriIPs <> '' then
+          begin
+            if SecIPs <> '' then
+              Result := PriIPs + ',' + SecIPs
+            else
+              Result := PriIPs;
+          end
+          else if SecIPs <> '' then
+            Result := SecIPs;
         end;
       end;
     finally
@@ -575,6 +584,9 @@ var
   JpegStream: TMemoryStream;
   Jpg: TJPEGImage;
   FirstFrameLogged: Boolean;
+  IPList: TStringList;
+  CandidateIP: string;
+  I: Integer;
 begin
   if WSAStartup($0202, WSAData) <> 0 then
   begin
@@ -583,13 +595,29 @@ begin
   end;
 
   try
-    // 1. Se informou IP local, tenta conectar diretamente na LAN (timeout 3s)
+    // 1. Se informou IP(s) local(is), tenta conectar diretamente na LAN (timeout 2s por IP)
     if (FLocalIP <> '') and (FLocalIP <> '127.0.0.1') and (FLocalIP <> FHost) then
     begin
-      Log('[STREAM CLIENT] Tentando conexão direta na rede local: ' + FLocalIP + ':' + IntToStr(FPort) + '...');
-      FSocket := TryConnectTo(FLocalIP, FPort, 3000);
-      if FSocket <> INVALID_SOCKET then
-        Log('[STREAM CLIENT SUCESSO] Conectado via rede local (' + FLocalIP + ':' + IntToStr(FPort) + ')!');
+      IPList := TStringList.Create;
+      try
+        IPList.Delimiter := ',';
+        IPList.StrictDelimiter := True;
+        IPList.DelimitedText := FLocalIP;
+        for I := 0 to IPList.Count - 1 do
+        begin
+          CandidateIP := Trim(IPList[I]);
+          if (CandidateIP = '') or (CandidateIP = '127.0.0.1') then Continue;
+          Log('[STREAM CLIENT] Tentando conexão direta na rede local: ' + CandidateIP + ':' + IntToStr(FPort) + '...');
+          FSocket := TryConnectTo(CandidateIP, FPort, 2000);
+          if FSocket <> INVALID_SOCKET then
+          begin
+            Log('[STREAM CLIENT SUCESSO] Conectado via rede local (' + CandidateIP + ':' + IntToStr(FPort) + ')!');
+            Break;
+          end;
+        end;
+      finally
+        IPList.Free;
+      end;
     end;
 
     // 2. Se a conexao local nao teve sucesso ou nao existia IP local, tenta IP publico / remoto

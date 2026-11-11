@@ -138,7 +138,7 @@ final class Api {
             $this->fail(400,'VALIDATION_ERROR','Somente port, transport e local_ip sao aceitos.');
         if (filter_var($ip,FILTER_VALIDATE_IP)===false)
             $this->fail(400,'INVALID_SOURCE_ADDRESS','Endereco de origem indisponivel.');
-        $localIp = isset($body['local_ip']) && is_string($body['local_ip']) && strlen($body['local_ip']) <= 45 ? $body['local_ip'] : null;
+        $localIp = isset($body['local_ip']) && is_string($body['local_ip']) && strlen($body['local_ip']) <= 100 ? $body['local_ip'] : null;
         $upsert=$this->mysql
             ? 'ON DUPLICATE KEY UPDATE observed_ip=VALUES(observed_ip),local_ip=VALUES(local_ip),port=VALUES(port),
                 transport=VALUES(transport),updated_at=VALUES(updated_at)'
@@ -218,6 +218,31 @@ final class Api {
                 $this->db->query('SELECT device_id FROM device_endpoints LIMIT 1');
                 $version=$this->db->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColumn();
                 return [200,['data'=>['status'=>'ok','version'=>$version,'stage'=>'p2p-discovery'],'request_id'=>$requestId]];
+            }
+            if ($method==='POST' && $path==='/diagnostics/logs') {
+                $logId = self::uuid();
+                $devId = null;
+                $auth = $headers['authorization'] ?? '';
+                if (str_starts_with($auth, 'Bearer ')) {
+                    $token = substr($auth, 7);
+                    $d = $this->run('SELECT id FROM devices WHERE token_hash=?', [hash('sha256', $token)])->fetch();
+                    if ($d) $devId = $d['id'];
+                }
+                $sessId = isset($body['session_id']) && is_string($body['session_id']) && strlen($body['session_id']) <= 36 ? $body['session_id'] : null;
+                $level = isset($body['level']) && in_array($body['level'], ['error','warn','info'], true) ? $body['level'] : 'error';
+                $category = isset($body['category']) && is_string($body['category']) ? substr($body['category'], 0, 50) : 'client';
+                $message = isset($body['message']) && is_string($body['message']) ? substr($body['message'], 0, 255) : 'Client Error Log';
+                $logContent = isset($body['log_content']) && is_string($body['log_content']) ? $body['log_content'] : '';
+                $appVersion = isset($body['app_version']) && is_string($body['app_version']) ? substr($body['app_version'], 0, 20) : '0.4.0';
+
+                try {
+                    $this->run('INSERT INTO device_logs(id,device_id,session_id,level,category,message,log_content,ip_address,app_version,created_at)
+                        VALUES(?,?,?,?,?,?,?,?,?,?)',
+                        [$logId, $devId, $sessId, $level, $category, $message, $logContent, $ip, $appVersion, $this->now]);
+                } catch (\Throwable) {
+                    error_log("[MaurinDesk Diagnostics] {$logId} [{$level}] {$category}: {$message} - IP: {$ip}");
+                }
+                return [201, ['data' => ['id' => $logId, 'saved' => true, 'timestamp' => gmdate('c', $this->now)], 'request_id' => $requestId]];
             }
             $device=null;
             if ($method==='POST' && $path==='/devices') $this->limit('register:'.hash('sha256',$ip),5,3600);
