@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 ini_set('display_errors','0');
-require dirname(__DIR__).'/bootstrap.php';
+require __DIR__.'/bootstrap.php';
 use MaurinDesk\Api;
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -32,7 +32,7 @@ if ($raw!=='') {
 }
 $base=rtrim(getenv('API_BASE_PATH')?:'/maurindesk/api/v1','/');
 $path=parse_url($_SERVER['REQUEST_URI']??'/',PHP_URL_PATH);
-if (is_string($path) && $path===rtrim(dirname(dirname($base)),'/').'/' && ($_SERVER['REQUEST_METHOD']??'GET')==='GET') {
+if (is_string($path) && $path===rtrim(dirname($base),'/').'/' && ($_SERVER['REQUEST_METHOD']??'GET')==='GET') {
     $path='/health';
 } else {
     if (!is_string($path) || !str_starts_with($path,$base.'/')) send_error(404,'NOT_FOUND','Rota não encontrada.');

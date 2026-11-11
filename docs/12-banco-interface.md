@@ -1,5 +1,7 @@
 # Banco para a interface desktop — versão 0.2
 
+> Publicação simplificada: server/ contém somente api/, sem subpastas. Copie api/ para public_html/maurindesk/api/. Veja [instalação atual](08-implantacao.md).
+
 11/11/2026. A imagem de referência orienta a organização dos dados; não altera a chave de acesso de 10 dígitos nem o consentimento por sessão.
 
 | Elemento da interface | Tabela / origem | Campos ou regra |

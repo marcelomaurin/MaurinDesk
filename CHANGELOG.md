@@ -1,5 +1,12 @@
 # Histórico
 
+## Organização de publicação — 11/11/2026
+- server/ contém somente api/, sem subpastas internas e com todos os arquivos de execução.
+- Removidas a estrutura php/, CLI de migração e script de empacotamento do servidor.
+- Testes movidos para tests/server/; publicação é copiar api/ para public_html/maurindesk/api/.
+- Dependências privadas protegidas por .htaccess e carregadas pelo caminho local.
+- Corrigida a expressão da coluna gerada active_host para normalizar CHAR com RTRIM no MariaDB.
+
 ## Banco 0.2 — suporte à interface desktop em 11/11/2026
 - Migração ordenada da base 0.1, com histórico e versão atualizada por último.
 - Preferências por instalação: idioma, tema, visualização e ordenação.
@@ -9,7 +16,7 @@
 - Presença expira em 45 s; miniaturas e tráfego de tela permanecem locais/P2P.
 
 ## Servidor / schema 0.1 — ajuste Hostinger em 11/11/2026
-- Métodos HTTP centralizados em server/php/api; domínio oficial /maurindesk/.
+- Métodos HTTP centralizados em server/api; domínio oficial /maurindesk/.
 - Configuração .env e suporte MySQL/MariaDB, preservando SQLite para desenvolvimento.
 - Criação automática de tabelas, params com VERSAO=0.1 e histórico em schema_migrations.
 - Migrações consultam versão atual e só atualizam VERSAO após aplicar e registrar mudanças.

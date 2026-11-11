@@ -20,7 +20,7 @@ O servidor PHP não terá páginas, painel ou interface de acesso remoto no nave
 
 ## Servidor atualizado
 
-Servidor oficial: https://maurinsoft.com.br/maurindesk/ . API em `/maurindesk/api/v1/`, com métodos HTTP em `server/php/api/`. Criação automática do banco, versão inicial 0.1 e migração atual para `params.VERSAO=0.2`, com dados para a interface desktop. Veja [instalação Hostinger](server/php/README.md) e [estado atual do servidor](docs/11-servidor-hostinger.md). O desktop e o executável ainda são 0.2.0.
+Servidor oficial: https://maurinsoft.com.br/maurindesk/ . Copie somente a pasta `server/api/` para `public_html/maurindesk/api/`. API em `/maurindesk/api/v1/`, com todos os arquivos de publicação em `server/api/`, sem subpastas. Criação automática do banco, versão inicial 0.1 e migração atual para `params.VERSAO=0.2`, com dados para a interface desktop. Veja [instalação Hostinger](docs/08-implantacao.md) e [estado atual do servidor](docs/11-servidor-hostinger.md). O desktop e o executável ainda são 0.2.0.
 
 Veja também o [mapeamento do banco para a interface](docs/12-banco-interface.md).
 
@@ -42,11 +42,11 @@ Veja também o [mapeamento do banco para a interface](docs/12-banco-interface.md
 ## Código e compilação
 
 - `desktop/`: projeto Lazarus, formulários, favoritos e identidade visual MaurinDesk.
-- `server/php/`: API, migrações, configuração e testes.
+- `server/api/`: API, migrações, configuração e testes.
 - `docs/`: especificação e evidências de validação.
 - [CHATGPT](https://github.com/marcelomaurin/CHATGPT): componentes Pascal reutilizáveis de captura, entrada remota, transporte e sessão.
 
-Consulte [desktop/README.md](desktop/README.md) para compilar e [server/php/README.md](server/php/README.md) para executar a API. O [andamento](docs/10-implementacao.md) distingue código validado e pendências. A biblioteca CHATGPT é um framework de componentes Lazarus; o acesso remoto não depende de um modelo de IA nem do envio da tela a um provedor de IA.
+Consulte [desktop/README.md](desktop/README.md) para compilar e [docs/08-implantacao.md](docs/08-implantacao.md) para executar a API. O [andamento](docs/10-implementacao.md) distingue código validado e pendências. A biblioteca CHATGPT é um framework de componentes Lazarus; o acesso remoto não depende de um modelo de IA nem do envio da tela a um provedor de IA.
 
 ## Estado da infraestrutura
 

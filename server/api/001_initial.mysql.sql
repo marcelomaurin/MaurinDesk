@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS sessions (
  state VARCHAR(20) NOT NULL,requested TEXT NOT NULL,granted TEXT NOT NULL,
  created_at BIGINT NOT NULL,expires_at BIGINT NOT NULL,ended_at BIGINT NULL,reason VARCHAR(80) NULL,
  active_host CHAR(36) GENERATED ALWAYS AS
-    (CASE WHEN state IN ('accepted','connecting','active') THEN host_id ELSE NULL END) STORED,
+    (CASE WHEN state IN ('accepted','connecting','active') THEN RTRIM(host_id) ELSE NULL END) STORED,
  UNIQUE KEY one_session_per_host(active_host),KEY incoming_sessions(host_id,state,created_at),
  FOREIGN KEY(requester_id) REFERENCES devices(id),FOREIGN KEY(host_id) REFERENCES devices(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

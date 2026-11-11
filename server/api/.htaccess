@@ -1,6 +1,10 @@
 Options -Indexes -MultiViews
 DirectoryIndex index.php
+<FilesMatch "^(?!index\.php$).*\.(?:php|sql)$|^\.">
+    Require all denied
+</FilesMatch>
 RewriteEngine On
 RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 RewriteRule ^index\.php$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
 RewriteRule ^ index.php [QSA,L]

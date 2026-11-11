@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-require dirname(__DIR__).'/src/Schema.php';
+require dirname(__DIR__,2).'/server/api/Schema.php';
 use MaurinDesk\Schema;
 $count=0;
 function check(bool $condition,string $message): void {
@@ -30,8 +30,8 @@ check($db->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColumn()
 
 // Start with exactly the schema shipped before the UI change.
 $legacy=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
-$legacy->exec(file_get_contents(dirname(__DIR__).'/migrations/001_initial.sql'));
-$legacy->exec(file_get_contents(dirname(__DIR__).'/migrations/002_peer_endpoints.sql'));
+$legacy->exec(file_get_contents(dirname(__DIR__,2).'/server/api/001_initial.sqlite.sql'));
+$legacy->exec(file_get_contents(dirname(__DIR__,2).'/server/api/002_peer_endpoints.sqlite.sql'));
 $legacy->exec("CREATE TABLE params(chave TEXT PRIMARY KEY,valor TEXT NOT NULL);
  INSERT INTO params VALUES('VERSAO','0.1');
  CREATE TABLE schema_migrations(versao TEXT PRIMARY KEY,descricao TEXT NOT NULL,aplicada_em INTEGER NOT NULL);

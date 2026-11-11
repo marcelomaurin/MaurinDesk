@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix="maurindesk-http-") as temp:
         port = sock.getsockname()[1]
     base = f"http://127.0.0.1:{port}/maurindesk/api/v1"
     server = subprocess.Popen(
-        [php, *php_args, "-S", f"127.0.0.1:{port}", "-t", "server/php/api", "server/php/api/index.php"],
+        [php, *php_args, "-S", f"127.0.0.1:{port}", "-t", "server/api", "server/api/index.php"],
         cwd=root, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         for _ in range(50):
@@ -35,7 +35,6 @@ with tempfile.TemporaryDirectory(prefix="maurindesk-http-") as temp:
         else:
             raise RuntimeError("PHP server failed to start")
         # The first health call must create the database and its tables automatically.
-        subprocess.run([php, *php_args, "server/php/bin/migrate.php"], cwd=root, env=env, check=True)
         def request(path, data=None, headers=None, method=None):
             url = path if path.startswith("http://") else base + path
             req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", **(headers or {})}, method=method)
@@ -57,7 +56,7 @@ with tempfile.TemporaryDirectory(prefix="maurindesk-http-") as temp:
             assert "error" in body and "request_id" in body
             assert headers.get("Cache-Control") == "no-store"
             print("OK", name, status)
-        status, body, _ = request(base.rsplit("/api/v1", 1)[0] + "/")
+        status, body, _ = request(base.rsplit("/v1", 1)[0] + "/")
         assert status == 200 and body["data"]["version"] == "0.2"
         print("OK server root health and initial version")
         status, body, _ = request("/devices", json.dumps({

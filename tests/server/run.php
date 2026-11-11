@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
-require dirname(__DIR__).'/src/Api.php';
-require dirname(__DIR__).'/src/Schema.php';
+require dirname(__DIR__,2).'/server/api/Api.php';
+require dirname(__DIR__,2).'/server/api/Schema.php';
 use MaurinDesk\Api;
 $dsn=getenv('MAURINDESK_TEST_MYSQL_DSN');
 $db=$dsn ? new PDO($dsn,getenv('MAURINDESK_TEST_MYSQL_USER'),getenv('MAURINDESK_TEST_MYSQL_PASSWORD'),

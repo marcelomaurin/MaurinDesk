@@ -1,9 +1,9 @@
 name: PHP API tests
 on:
   push:
-    paths: ['server/php/**', 'tests/http_smoke.py', '.github/workflows/php-tests.yml']
+    paths: ['server/api/**', 'tests/server/**', 'tests/http_smoke.py', '.github/workflows/php-tests.yml']
   pull_request:
-    paths: ['server/php/**', 'tests/http_smoke.py', '.github/workflows/php-tests.yml']
+    paths: ['server/api/**', 'tests/server/**', 'tests/http_smoke.py', '.github/workflows/php-tests.yml']
 permissions:
   contents: read
 jobs:
@@ -17,16 +17,17 @@ jobs:
           extensions: pdo_sqlite
           coverage: none
       - name: Syntax
-        run: find server/php -name '*.php' -print0 | xargs -0 -n1 php -l
+        run: find server/api -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Consent, identity and P2P discovery tests
-        run: php server/php/tests/desktop_ui.php
+        run: php tests/server/desktop_ui.php
       - name: Automatic schema and version migrations
-        run: php server/php/tests/schema.php
+        run: php tests/server/schema.php
       - name: HTTP boundary tests
         run: python3 tests/http_smoke.py
   mysql:
     runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
         database: ['mysql:8.0', 'mariadb:11.4']
     services:
@@ -51,4 +52,4 @@ jobs:
           MAURINDESK_TEST_MYSQL_DSN: mysql:host=127.0.0.1;port=3306;dbname=maurindesk_test;charset=utf8mb4
           MAURINDESK_TEST_MYSQL_USER: root
           MAURINDESK_TEST_MYSQL_PASSWORD: ci-test-only
-        run: php server/php/tests/desktop_ui.php
+        run: php tests/server/desktop_ui.php

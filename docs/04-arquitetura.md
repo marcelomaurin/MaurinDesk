@@ -7,7 +7,7 @@
 |---|---|---|
 | Produto desktop | Janelas, consentimento, favoritos e orquestração | MaurinDesk/desktop |
 | Biblioteca | Captura de desktop, entrada, protocolo, cliente API e sessão | CHATGPT |
-| Controle | Registro, presença, consentimento e troca de SDP/ICE | MaurinDesk/server/php |
+| Controle | Registro, presença, consentimento e troca de SDP/ICE | MaurinDesk/server/api |
 | Transporte | DataChannels WebRTC entre pares | CHATGPT + libdatachannel |
 | Retransmissão | Tráfego WebRTC quando não houver rota direta | TURN dedicado |
 | Persistência | Dispositivos, tokens, sessões e auditoria | Banco relacional da API |

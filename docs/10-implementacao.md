@@ -23,7 +23,7 @@ O desktop consome diretamente unidades da biblioteca irmã; não há cópia dos 
 ## Evidência executada no ambiente local
 - PHP 8.3.36-1 portátil obtido da distribuição oficial Windows, checksum SHA-256 conferido.
 - Sintaxe de todos os cinco arquivos PHP verificada.
-- Suite server/php/tests/run.php: **29 verificações aprovadas**.
+- Suite tests/server/run.php: **29 verificações aprovadas**.
 - Script tests/http_smoke.py: **4 cenários HTTP aprovados** (JSON inválido, array em vez de objeto, payload excessivo e rota privada).
 - Suite CHATGPT test_airemote_foundation: **8 verificações aprovadas**, incluindo DPAPI e bloqueio de HTTP remoto.
 - tests/signaling_probe.lpr: **7 cenários aprovados** com cliente Windows real e servidor PHP local.
@@ -54,6 +54,6 @@ Aceite reserva apenas 30 s de negociação. Sem os próximos módulos, não have
 nem entrada remota. Métodos de API ainda inexistentes retornam erro e não autorizam transporte alternativo.
 
 ## Reprodução
-Consulte server/php/README.md, desktop/README.md e o teste de integração em tests/signaling_probe.lpr.
+Consulte docs/08-implantacao.md, desktop/README.md e o teste de integração em tests/signaling_probe.lpr.
 O workflow .github/workflows/php-tests.yml executa testes de PHP e fronteira HTTP no GitHub.
 O executável fica em bin/MaurinDesk.exe e está versionado no Git conforme solicitado. bin/manifest.json registra versão, SHA-256 e revisão dos fontes.

@@ -39,17 +39,17 @@ final class Schema {
             // Append future versions here, in order. Keep previous migrations immutable.
             $migrations=[
                 '0.1'=>['descricao'=>'Identidade, consentimento e descoberta de endpoints P2P',
-                    'files'=>$mysql ? ['mysql/001_initial.sql'] : ['001_initial.sql','002_peer_endpoints.sql']],
+                    'files'=>$mysql ? ['001_initial.mysql.sql'] : ['001_initial.sqlite.sql','002_peer_endpoints.sqlite.sql']],
                 '0.2'=>['descricao'=>'Preferencias do desktop, contatos, favoritos e cartoes da interface',
                     'repairable'=>true,
-                    'files'=>$mysql ? ['mysql/002_desktop_ui.sql'] : ['003_desktop_ui.sql']],
+                    'files'=>$mysql ? ['002_desktop_ui.mysql.sql'] : ['003_desktop_ui.sqlite.sql']],
             ];
             foreach ($migrations as $version=>$migration) {
                 // Baseline CREATE IF NOT EXISTS also restores missing tables.
                 if ($current!==false && !version_compare($version,(string)$current,'>') &&
                     !($migration['repairable']??($version==='0.1'))) continue;
                 foreach ($migration['files'] as $relative) {
-                    $sql=file_get_contents(dirname(__DIR__).'/migrations/'.$relative);
+                    $sql=file_get_contents(__DIR__.'/'.$relative);
                     if ($sql===false) throw new RuntimeException('Missing migration');
                     $db->exec($sql);
                 }

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
-require_once __DIR__.'/src/Api.php';
-require_once __DIR__.'/src/Schema.php';
+require_once __DIR__.'/Api.php';
+require_once __DIR__.'/Schema.php';
 function maurindesk_load_env(): void {
     $file=getenv('MAURINDESK_ENV_FILE')?:__DIR__.'/.env';
     if (!is_file($file)) return;
