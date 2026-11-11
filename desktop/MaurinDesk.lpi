@@ -17,6 +17,10 @@
    <OtherUnitFiles Value="../../CHATGPT/pacote/AI Communication/AIRemoteDesktop"/>
    <UnitOutputDirectory Value="../build/desktop/$(TargetCPU)-$(TargetOS)"/>
   </SearchPaths>
+  <CodeGeneration>
+   <TargetCPU Value="x86_64"/>
+   <TargetOS Value="win64"/>
+  </CodeGeneration>
   <Linking><Options><Win32><GraphicApplication Value="True"/></Win32></Options></Linking>
  </CompilerOptions>
 </CONFIG>

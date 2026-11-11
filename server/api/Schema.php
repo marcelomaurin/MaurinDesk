@@ -7,7 +7,7 @@ use Throwable;
 
 /** Ordered migrations. VERSAO changes only after successful schema changes. */
 final class Schema {
-    public const VERSION='0.2';
+    public const VERSION='0.3';
     public static function migrate(PDO $db): void {
         $mysql=$db->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql';
         $lock=false; $lockName='maurindesk_schema';
@@ -39,10 +39,14 @@ final class Schema {
             // Append future versions here, in order. Keep previous migrations immutable.
             $migrations=[
                 '0.1'=>['descricao'=>'Identidade, consentimento e descoberta de endpoints P2P',
+                    'repairable'=>true,
                     'files'=>$mysql ? ['001_initial.mysql.sql'] : ['001_initial.sqlite.sql','002_peer_endpoints.sqlite.sql']],
                 '0.2'=>['descricao'=>'Preferencias do desktop, contatos, favoritos e cartoes da interface',
                     'repairable'=>true,
                     'files'=>$mysql ? ['002_desktop_ui.mysql.sql'] : ['003_desktop_ui.sqlite.sql']],
+                '0.3'=>['descricao'=>'Verificacao e reparo completo de tabelas e colunas do MaurinDesk',
+                    'repairable'=>true,
+                    'files'=>$mysql ? ['003_schema_repair.mysql.sql'] : ['004_schema_repair.sqlite.sql']],
             ];
             foreach ($migrations as $version=>$migration) {
                 // Baseline CREATE IF NOT EXISTS also restores missing tables.
@@ -51,7 +55,22 @@ final class Schema {
                 foreach ($migration['files'] as $relative) {
                     $sql=file_get_contents(__DIR__.'/'.$relative);
                     if ($sql===false) throw new RuntimeException('Missing migration');
-                    $db->exec($sql);
+                    if ($mysql) $db->exec('SET FOREIGN_KEY_CHECKS=0');
+                    $statements = preg_split('/;\s*(?:\r?\n|$)/', $sql);
+                    foreach ($statements as $statement) {
+                        $s = trim($statement);
+                        if ($s === '' || str_starts_with($s, '--')) continue;
+                        try {
+                            $db->exec($s);
+                        } catch (Throwable $e) {
+                            $msg = strtolower($e->getMessage());
+                            if (str_contains($msg, 'duplicate') || str_contains($msg, 'already exists')) {
+                                continue;
+                            }
+                            throw $e;
+                        }
+                    }
+                    if ($mysql) $db->exec('SET FOREIGN_KEY_CHECKS=1');
                 }
                 if ($current!==false && !version_compare($version,(string)$current,'>')) continue;
                 // MySQL DDL commits implicitly: record history and version afterwards.
@@ -59,10 +78,13 @@ final class Schema {
                 $insert=$mysql ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
                 $q=$db->prepare($insert.' INTO schema_migrations(versao,descricao,aplicada_em) VALUES(?,?,?)');
                 $q->execute([$version,$migration['descricao'],time()]);
-                $q=$db->prepare($current===false
-                    ? "INSERT INTO params(chave,valor) VALUES('VERSAO',?)"
-                    : "UPDATE params SET valor=? WHERE chave='VERSAO'");
-                $q->execute([$version]);
+                if ($mysql) {
+                    $q=$db->prepare("INSERT INTO params(chave,valor) VALUES('VERSAO',?) ON DUPLICATE KEY UPDATE valor=VALUES(valor)");
+                    $q->execute([$version]);
+                } else {
+                    $q=$db->prepare("INSERT OR REPLACE INTO params(chave,valor) VALUES('VERSAO',?)");
+                    $q->execute([$version]);
+                }
                 if ($mysql) $db->commit();
                 $current=$version;
             }

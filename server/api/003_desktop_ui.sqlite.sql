@@ -4,9 +4,6 @@ CREATE TABLE IF NOT EXISTS device_preferences (
  view_mode TEXT NOT NULL DEFAULT 'cards', sort_by TEXT NOT NULL DEFAULT 'last_used',
  updated_at INTEGER NOT NULL
 );
-INSERT INTO device_preferences(device_id,updated_at)
- SELECT d.id,d.created_at FROM devices d
- WHERE NOT EXISTS(SELECT 1 FROM device_preferences p WHERE p.device_id=d.id);
 CREATE TABLE IF NOT EXISTS device_contacts (
  id TEXT PRIMARY KEY, owner_device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
  remote_key TEXT NOT NULL CHECK(length(remote_key)=10), alias TEXT NOT NULL DEFAULT '',

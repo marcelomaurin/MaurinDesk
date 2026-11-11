@@ -6,7 +6,7 @@ use MaurinDesk\Api;
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
-function send_error(int $status,string $code,string $message): never {
+function send_error(int $status,string $code,string $message) {
     http_response_code($status);
     echo json_encode(['error'=>['code'=>$code,'message'=>$message],'request_id'=>Api::uuid()]);
     exit;
@@ -30,14 +30,34 @@ if ($raw!=='') {
         $body=json_decode($raw,true,32,JSON_THROW_ON_ERROR);
     } catch (JsonException) { send_error(400,'VALIDATION_ERROR','JSON inválido.'); }
 }
-$base=rtrim(getenv('API_BASE_PATH')?:'/maurindesk/api/v1','/');
-$path=parse_url($_SERVER['REQUEST_URI']??'/',PHP_URL_PATH);
-if (is_string($path) && $path===rtrim(dirname($base),'/').'/' && ($_SERVER['REQUEST_METHOD']??'GET')==='GET') {
-    $path='/health';
-} else {
-    if (!is_string($path) || !str_starts_with($path,$base.'/')) send_error(404,'NOT_FOUND','Rota não encontrada.');
-    $path=substr($path,strlen($base));
+
+$rawPath=parse_url($_SERVER['REQUEST_URI']??'/',PHP_URL_PATH);
+if (!is_string($rawPath)) send_error(404,'NOT_FOUND','Rota não encontrada.');
+$path=$rawPath;
+
+$base=rtrim(getenv('API_BASE_PATH')?:'','/');
+if ($base==='') {
+    if (preg_match('#^/(?:MaurinDesk|maurindesk)/(?:api|php)(?:/v1)?#i',$path,$m)) {
+        $base=$m[0];
+    } else {
+        $base='/MaurinDesk/api';
+    }
 }
+
+if (strcasecmp($path,$base)===0 || strcasecmp($path,$base.'/')===0 ||
+    strcasecmp($path,rtrim(dirname($base),'/').'/')===0) {
+    $path='/health';
+} elseif (str_starts_with(strtolower($path),strtolower($base).'/')) {
+    $path=substr($path,strlen($base));
+} else {
+    if (preg_match('#^/(?:MaurinDesk|maurindesk)/(?:api|php)(?:/v1)?(.*)$#i',$path,$m)) {
+        $path=$m[1];
+    } else {
+        send_error(404,'NOT_FOUND','Rota não encontrada.');
+    }
+}
+if ($path==='' || $path==='/') $path='/health';
+
 $headers=function_exists('getallheaders')?getallheaders():[];
 if (isset($_SERVER['HTTP_AUTHORIZATION'])) $headers['authorization']=$_SERVER['HTTP_AUTHORIZATION'];
 elseif (isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) $headers['authorization']=$_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
@@ -48,4 +68,8 @@ try {
     http_response_code($status);
     if ($status===429) header('Retry-After: 60');
     echo json_encode($response,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
-} catch (Throwable) { send_error(503,'SERVICE_UNAVAILABLE','Serviço indisponível.'); }
+} catch (\MaurinDesk\ApiError $e) {
+    send_error($e->status,$e->errorCode,$e->getMessage());
+} catch (\Throwable $e) {
+    send_error(500,'INTERNAL_ERROR','Falha interna de processamento: '.$e->getMessage());
+}

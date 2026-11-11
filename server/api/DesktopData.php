@@ -9,7 +9,7 @@ final class DesktopData {
     private function run(string $sql,array $args=[]): \PDOStatement {
         $q=$this->db->prepare($sql); $q->execute($args); return $q;
     }
-    private function invalid(): never {
+    private function invalid() {
         throw new ApiError(400,'VALIDATION_ERROR','Dados da interface invalidos.');
     }
     private function fields(array $body,array $allowed): void {

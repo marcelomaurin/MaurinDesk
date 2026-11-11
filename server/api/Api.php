@@ -8,8 +8,19 @@ use Throwable;
 require_once __DIR__.'/DesktopData.php';
 
 final class ApiError extends RuntimeException {
-    public function __construct(public readonly int $status, public readonly string $errorCode, string $message) {
+    public int $status;
+    public string $errorCode;
+    public function __construct(int $status, string $errorCode, string $message) {
+        $this->status = $status;
+        $this->errorCode = $errorCode;
         parent::__construct($message);
+    }
+}
+
+if (!function_exists('array_is_list')) {
+    function array_is_list(array $a): bool {
+        if ($a === []) return true;
+        return array_keys($a) === range(0, count($a) - 1);
     }
 }
 
@@ -45,7 +56,7 @@ final class Api {
             $this->db->query('SELECT id FROM api_mutex WHERE id=1 FOR UPDATE')->fetch();
         } else $this->db->exec('BEGIN IMMEDIATE');
     }
-    private function fail(int $status, string $code, string $message): never {
+    private function fail(int $status, string $code, string $message) {
         throw new ApiError($status,$code,$message);
     }
     private function text(array $b,string $key,int $max=128): string {
@@ -180,7 +191,7 @@ final class Api {
                 $key='';
                 for($i=0;$i<10;$i++) $key.=(string)random_int(0,9);
             } while($this->run('SELECT id FROM devices WHERE public_key=?',[$key])->fetch());
-            $this->run('INSERT INTO devices VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+            $this->run('INSERT INTO devices(id,public_key,registration_id,registration_hash,token_hash,token_expires,display_name,platform,app_version,last_seen,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                 [$id,$key,$rid,$hash,hash('sha256',$token),$exp,$name,$platform,$version,$this->now,$this->now]);
         }
         (new DesktopData($this->db,$this->now))->preferences($id);
@@ -305,7 +316,7 @@ final class Api {
                     $data=$this->view($this->session($s['id'],$device['id']));
                 } else $this->fail(404,'NOT_FOUND','Rota não encontrada.');
             } else $this->fail(404,'NOT_FOUND','Rota não implementada.');
-            if ($idem!==null) $this->run('INSERT INTO idempotency VALUES(?,?,?,?,?,?,?)',
+            if ($idem!==null) $this->run('INSERT INTO idempotency(device_id,route,`key`,body_hash,response,status,expires_at) VALUES(?,?,?,?,?,?,?)',
                 [$device['id'],$method.' '.$path,$idem,$bodyHash,json_encode($data,JSON_THROW_ON_ERROR),$status,$this->now+86400]);
             $this->db->exec('COMMIT'); $transaction=false;
             return [$status,['data'=>$data,'request_id'=>$requestId]];
