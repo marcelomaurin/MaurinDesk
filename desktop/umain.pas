@@ -43,6 +43,10 @@ type
     FRelayHost: TDeskRelayHost;
     FRemoteViewer: TfRemoteViewer;
     FIsController: Boolean;
+    FSessionCanControl: Boolean;
+    FHasPendingOp: Boolean;
+    FPendingOp: TOperation;
+    FPendingId: string;
 
     // Header Controls
     FTopBar: TPanel;
@@ -1161,7 +1165,20 @@ end;
 
 procedure TMainForm.Start(Operation: TOperation; const Id: string);
 begin
-  if FBusy or FClosing then Exit;
+  if FClosing then Exit;
+  if FBusy then
+  begin
+    // Enfileira ações do usuário para não perder cliques se o poll estiver ativo
+    if Operation in [opConnect, opAcceptView, opAcceptControl, opReject, opClose] then
+    begin
+      FPendingOp := Operation;
+      FPendingId := Id;
+      FHasPendingOp := True;
+      LogMsg('[FILA] Ação agendada para execução imediata após sincronização...');
+    end;
+    Exit;
+  end;
+
   if (Operation <> opRegister) and (Operation <> opHealth) and (FToken = '') then begin
     FStatusMsgLabel.Caption := 'Registre esta máquina primeiro.';
     LogMsg('[AVISO] Registre esta máquina primeiro para executar operações de sessão.');
@@ -1216,7 +1233,7 @@ begin
     LogMsg('[FALHA] ' + W.Failure);
 
     if Pos('403', W.Failure) > 0 then
-      LogMsg('[DICA 403] Servidor retornou Acesso Proibido. Certifique-se de que a pasta server/api foi copiada para public_html/MaurinDesk/php/.')
+      LogMsg('[DICA 403] Servidor retornou Acesso Proibido. Certifique-se de que a pasta server/api foi copiada para public_html/MaurinDesk/api/.')
     else if Pos('404', W.Failure) > 0 then
       LogMsg('[DICA 404] URL não encontrada no servidor. Confira a rota configurada em ⚙ Config Servidor.')
     else if (Pos('12007', W.Failure) > 0) or (Pos('12029', W.Failure) > 0) then
@@ -1284,7 +1301,7 @@ begin
             else
             begin
               LogMsg('[STREAM] Testando conexões diretas P2P (Local: ' + PeerLocalIP + ', Remoto: ' + PeerObservedIP + ':' + IntToStr(PeerPort) + ')...');
-              FStreamClient := TDeskStreamClient.Create(PeerObservedIP, PeerPort, PeerLocalIP);
+              FStreamClient := TDeskStreamClient.Create(PeerObservedIP, PeerPort, PeerLocalIP, FSessionId, FToken, True);
               FStreamClient.OnLog := @HandleStreamLog;
               FStreamClient.OnFallbackToRelay := @HandleFallbackToRelay;
               FStreamClient.OnPortSuccess := @HandlePortSuccess;
@@ -1301,7 +1318,7 @@ begin
         // Se a sessão foi aceita e este computador é o host, garante que o stream server e a ponte estão ativos
         if (State = 'accepted') and not FIsController then begin
           if FStreamServer = nil then begin
-            FStreamServer := TDeskStreamServer.Create(FStreamPort, True);
+            FStreamServer := TDeskStreamServer.Create(FStreamPort, FSessionCanControl, FSessionId, FToken);
             FStreamServer.OnLog := @HandleStreamLog;
             FStreamServer.Start;
           end;
@@ -1315,11 +1332,13 @@ begin
 
         if (State = 'closed') or (State = 'expired') or (State = 'rejected') or (State = 'cancelled') then begin
           FSessionId := '';
+          FIsController := False;
           FActiveSessionPanel.Visible := False;
           StopStreaming;
         end;
       end else begin
         FActiveSessionPanel.Visible := False;
+        FIsController := False;
         StopStreaming;
       end;
 
@@ -1344,9 +1363,12 @@ begin
       FStatusMsgLabel.Caption := 'Sessão iniciada: ' + W.Data.Get('state', '');
       LogMsg('[CONECTADO] Sessão ID ' + FSessionId + ' iniciada. Estado: ' + W.Data.Get('state', ''));
 
-      // Inicia servidor de captura de tela no Host
+      // Armazena a permissão explicitamente decidida pelo usuário no consentimento
+      FSessionCanControl := (W.Operation = opAcceptControl);
+
+      // Inicia servidor de captura de tela no Host com controle rigoroso e autenticação por token
       if FStreamServer = nil then begin
-        FStreamServer := TDeskStreamServer.Create(FStreamPort, W.Operation = opAcceptControl);
+        FStreamServer := TDeskStreamServer.Create(FStreamPort, FSessionCanControl, FSessionId, FToken);
         FStreamServer.OnLog := @HandleStreamLog;
         FStreamServer.Start;
       end;
@@ -1367,6 +1389,7 @@ begin
 
     opClose: begin
       FSessionId := '';
+      FIsController := False;
       FActiveSessionPanel.Visible := False;
       StopStreaming;
       FStatusMsgLabel.Caption := 'Sessão encerrada.';
@@ -1389,6 +1412,13 @@ begin
       else
         LogMsg(_T(strLogSentSuccess) + 'OK)');
     end;
+  end;
+
+  // Processa operação do usuário que estava aguardando na fila
+  if FHasPendingOp and not FClosing then
+  begin
+    FHasPendingOp := False;
+    Start(FPendingOp, FPendingId);
   end;
 end;
 
@@ -1461,7 +1491,6 @@ begin
     FRelayHost.WaitFor;
     FreeAndNil(FRelayHost);
   end;
-  FIsController := False;
 end;
 
 procedure TMainForm.StartRelayStreaming;
@@ -1804,17 +1833,69 @@ begin
   end;
 end;
 
-procedure TMainForm.Closing(Sender: TObject; var CanClose: Boolean);
+type
+  TQuickCloseThread = class(TThread)
+  private
+    FURL, FToken, FSessionId: string;
+    FAllowLocal: Boolean;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const AURL, AToken, ASessionId: string; AAllowLocal: Boolean);
+  end;
+
+constructor TQuickCloseThread.Create(const AURL, AToken, ASessionId: string; AAllowLocal: Boolean);
 begin
-  CanClose := not FBusy;
-  if FBusy then begin
-    LogMsg('[AVISO] Aguarde a operação atual terminar antes de fechar.');
-    ShowMessage('Aguarde a operação em andamento terminar para fechar.');
+  inherited Create(False);
+  FreeOnTerminate := True;
+  FURL := AURL;
+  FToken := AToken;
+  FSessionId := ASessionId;
+  FAllowLocal := AAllowLocal;
+end;
+
+procedure TQuickCloseThread.Execute;
+var
+  Cli: TAIRemoteSignalingClient;
+  Resp: TJSONObject;
+begin
+  try
+    Cli := TAIRemoteSignalingClient.Create;
+    try
+      Cli.BaseURL := FURL;
+      Cli.DeviceToken := FToken;
+      Cli.AllowLocalHTTP := FAllowLocal;
+      Resp := Cli.CloseSession(FSessionId, 'app_closed');
+      if Resp <> nil then Resp.Free;
+    finally
+      Cli.Free;
+    end;
+  except
   end;
-  if CanClose and (FSessionId <> '') then begin
-    Start(opClose, FSessionId);
-    CanClose := False;
+end;
+
+procedure TMainForm.Closing(Sender: TObject; var CanClose: Boolean);
+var
+  CloseSessionId: string;
+begin
+  FClosing := True;
+  FTimer.Enabled := False;
+  StopStreaming;
+
+  CloseSessionId := FSessionId;
+  FSessionId := '';
+  FIsController := False;
+
+  // Se havia sessão aberta, notifica o encerramento de forma não-bloqueante
+  if (CloseSessionId <> '') and (FToken <> '') then
+  begin
+    try
+      TQuickCloseThread.Create(FURL, FToken, CloseSessionId, FAllowLocal);
+    except
+    end;
   end;
+
+  CanClose := True; // Permite fechar a janela imediatamente sem travar
 end;
 
 end.

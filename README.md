@@ -1,26 +1,30 @@
 # MaurinDesk
 
-Acesso remoto assistido, inspirado no fluxo de uso do AnyDesk, com cliente desktop Lazarus/Free Pascal e servidor PHP exclusivamente de APIs.
+Acesso remoto assistido, inspirado no fluxo de uso do AnyDesk, com cliente desktop Lazarus/Free Pascal nativo e servidor PHP exclusivamente de APIs e sinalização/relay.
 
-**Estado em 11/11/2026: versão inicial 0.2.0 implementada. API de identidade/presença/consentimento e desktop Lazarus compilado. Transmissão de tela e controle remoto ainda não implementados.**
+**Estado atual (v0.6.1): Transmissão de tela em tempo real, controle remoto bidirecional autenticado, probing multi-portas P2P (7071/8080/9876), fallback automático para Servidor como Ponte (HTTP Relay) e regras automáticas de Windows Firewall.**
 
-## Funcionamento previsto
+## Funcionamento
 
 1. Cada instalação registra sua identidade e recebe uma chave única de **10 dígitos**.
 2. A aplicação mostra a própria chave e permite informar a chave de outro computador.
-3. O computador de destino recebe uma solicitação e seu usuário aceita ou recusa.
-4. Somente após aceitar são liberados compartilhamento da área de trabalho e controle de mouse/teclado, conforme permissões concedidas.
-5. O solicitante pode salvar a chave com um apelido para reconectar. Cada nova sessão exige nova autorização.
-6. Qualquer participante pode encerrar; o usuário local pode suspender imediatamente o controle.
+3. O computador de destino recebe uma solicitação e seu usuário aceita com controle total ou apenas visualização.
+4. Somente após aceitar na API, o canal de streaming P2P é liberado:
+   - O canal exige autenticação mandatória no handshake (`PKT_HELLO`) com verificação estrita do `SessionId` e token da sessão.
+   - Conexões não autenticadas ou com chave/sessão divergentes são descartadas imediatamente com fechamento de socket.
+   - Se o consentimento concedido foi "apenas visualização", o host bloqueia qualquer comando de entrada na raiz.
+5. Conectividade robusta (P2P + Ponte):
+   - Probing automático de portas TCP (`7071`, `8080`, `9876`) com criação automática de regras no Firewall do Windows.
+   - Caso o host e o controlador estejam atrás de NATs sem loopback ou bloqueios estritos, o sistema entra automaticamente em **Modo Ponte (Server Relay)** pelo servidor HTTPS.
+6. O solicitante pode salvar a chave com um apelido para reconectar. Cada nova sessão exige nova autorização.
+7. Qualquer participante pode encerrar; o fechamento da aplicação é imediato e não bloqueante.
 
-**Endereço oficial de conexão:** https://maurinsoft.com.br/maurindesk/api/  
-**Base versionada proposta:** https://maurinsoft.com.br/maurindesk/api/v1/
+**Endereço oficial de conexão:** https://maurinsoft.com.br/MaurinDesk/api/  
+**Base versionada:** https://maurinsoft.com.br/MaurinDesk/api/v1/
 
-O servidor PHP não terá páginas, painel ou interface de acesso remoto no navegador. As telas de conexão, consentimento e visualização pertencem ao desktop.
+## Servidor Atualizado
 
-## Servidor atualizado
-
-Servidor oficial: https://maurinsoft.com.br/maurindesk/ . Copie somente a pasta `server/api/` para `public_html/maurindesk/api/`. API em `/maurindesk/api/v1/`, com todos os arquivos de publicação em `server/api/`, sem subpastas. Criação automática do banco, versão inicial 0.1 e migração atual para `params.VERSAO=0.2`, com dados para a interface desktop. Veja [instalação Hostinger](docs/08-implantacao.md) e [estado atual do servidor](docs/11-servidor-hostinger.md). O desktop e o executável ainda são 0.2.0.
+Servidor oficial: `https://maurinsoft.com.br/MaurinDesk/api/`. Copie os arquivos da pasta `server/api/` para `public_html/MaurinDesk/api/`. As migrações (`0.1` a `0.6`) são executadas e checadas de forma inteligente e idempotente, sem travamento desnecessário a cada requisição.
 
 Veja também o [mapeamento do banco para a interface](docs/12-banco-interface.md).
 

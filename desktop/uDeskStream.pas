@@ -26,6 +26,8 @@ type
     FCanControl: Boolean;
     FQuality: Integer;
     FRunning: Boolean;
+    FSessionId: string;
+    FExpectedToken: string;
     FOnLog: TStreamLogEvent;
     FSyncLogMsg: string;
     procedure Log(const S: string);
@@ -36,7 +38,7 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create(APort: Integer; ACanControl: Boolean; AQuality: Integer = 65);
+    constructor Create(APort: Integer; ACanControl: Boolean; const ASessionId: string = ''; const AExpectedToken: string = ''; AQuality: Integer = 65);
     destructor Destroy; override;
     procedure StopServer;
     property OnLog: TStreamLogEvent read FOnLog write FOnLog;
@@ -48,6 +50,9 @@ type
     FHost: string;
     FPort: Integer;
     FLocalIP: string;
+    FSessionId: string;
+    FAuthToken: string;
+    FCanControl: Boolean;
     FSocket: TSocket;
     FRunning: Boolean;
     FConnected: Boolean;
@@ -71,7 +76,7 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create(const AHost: string; APort: Integer; const ALocalIP: string = '');
+    constructor Create(const AHost: string; APort: Integer; const ALocalIP: string = ''; const ASessionId: string = ''; const AAuthToken: string = ''; ARequestControl: Boolean = True);
     destructor Destroy; override;
     procedure StopClient;
     function SendMouseMove(NormX, NormY: Word): Boolean;
@@ -79,6 +84,7 @@ type
     function SendMouseWheel(Delta: SmallInt): Boolean;
     function SendKeyEvent(VirtualKey: Word; IsDown: Boolean): Boolean;
     property Connected: Boolean read FConnected;
+    property CanControl: Boolean read FCanControl;
     property OnFrame: TFrameEvent read FOnFrame write FOnFrame;
     property OnLog: TStreamLogEvent read FOnLog write FOnLog;
     property OnFallbackToRelay: TFallbackRelayEvent read FOnFallbackToRelay write FOnFallbackToRelay;
@@ -190,12 +196,14 @@ end;
 
 { TDeskStreamServer }
 
-constructor TDeskStreamServer.Create(APort: Integer; ACanControl: Boolean; AQuality: Integer);
+constructor TDeskStreamServer.Create(APort: Integer; ACanControl: Boolean; const ASessionId, AExpectedToken: string; AQuality: Integer);
 begin
   inherited Create(True);
   FreeOnTerminate := False;
   FPort := APort;
   FCanControl := ACanControl;
+  FSessionId := ASessionId;
+  FExpectedToken := AExpectedToken;
   FQuality := AQuality;
   FListeningSocket := INVALID_SOCKET;
   FClientSocket := INVALID_SOCKET;
@@ -362,6 +370,9 @@ var
   FDSet: TFDSet;
   TimeVal: TTimeVal;
   PortAlreadyBound: Boolean;
+  HelloPkt: THelloPacket;
+  RecvSessionId, RecvToken: string;
+  GrantedControlByte: Byte;
 begin
   if WSAStartup($0202, WSAData) <> 0 then Exit;
 
@@ -453,7 +464,65 @@ begin
         if FClientSocket = INVALID_SOCKET then Continue;
 
         ClientIPStr := string(inet_ntoa(ClientAddr.sin_addr));
-        Log('[STREAM SERVER SUCESSO] Cliente conectado a partir de ' + ClientIPStr + '! Iniciando transmissão de tela...');
+        Log('[STREAM SERVER] Conexão recebida de ' + ClientIPStr + '. Verificando autenticação...');
+
+        // Timeout de 3 segundos para o handshake obrigatório
+        OptVal := 3000;
+        setsockopt(FClientSocket, SOL_SOCKET, SO_RCVTIMEO, PAnsiChar(@OptVal), SizeOf(OptVal));
+
+        if not RecvAll(FClientSocket, Magic, SizeOf(Magic)) or (Magic <> DESK_MAGIC) or
+           not RecvAll(FClientSocket, PktType, SizeOf(PktType)) or (PktType <> PKT_HELLO) or
+           not RecvAll(FClientSocket, HelloPkt, SizeOf(HelloPkt)) then
+        begin
+          Log('[SEGURANÇA BLOQUEIO] Conexão não autenticada rejeitada de ' + ClientIPStr + '. Fechando porta.');
+          closesocket(FClientSocket);
+          FClientSocket := INVALID_SOCKET;
+          Continue;
+        end;
+
+        RecvSessionId := Trim(string(HelloPkt.SessionId));
+        RecvToken := Trim(string(HelloPkt.AuthToken));
+
+        if (FSessionId <> '') and (RecvSessionId <> FSessionId) then
+        begin
+          Log('[SEGURANÇA BLOQUEIO] Sessão inválida (' + RecvSessionId + ') de ' + ClientIPStr + '. Rejeitando.');
+          Magic := DESK_MAGIC;
+          PktType := PKT_HELLO_REJ;
+          SendAll(FClientSocket, Magic, SizeOf(Magic));
+          SendAll(FClientSocket, PktType, SizeOf(PktType));
+          closesocket(FClientSocket);
+          FClientSocket := INVALID_SOCKET;
+          Continue;
+        end;
+
+        if (FExpectedToken <> '') and (RecvToken <> FExpectedToken) then
+        begin
+          Log('[SEGURANÇA BLOQUEIO] Token de acesso inválido de ' + ClientIPStr + '. Rejeitando.');
+          Magic := DESK_MAGIC;
+          PktType := PKT_HELLO_REJ;
+          SendAll(FClientSocket, Magic, SizeOf(Magic));
+          SendAll(FClientSocket, PktType, SizeOf(PktType));
+          closesocket(FClientSocket);
+          FClientSocket := INVALID_SOCKET;
+          Continue;
+        end;
+
+        // O Host impõe a permissão decidida no consentimento (não permite virar controle se for apenas visualização)
+        GrantedControlByte := 0;
+        if FCanControl and (HelloPkt.CanControl = 1) then
+          GrantedControlByte := 1;
+
+        Magic := DESK_MAGIC;
+        PktType := PKT_HELLO_ACK;
+        SendAll(FClientSocket, Magic, SizeOf(Magic));
+        SendAll(FClientSocket, PktType, SizeOf(PktType));
+        SendAll(FClientSocket, GrantedControlByte, 1);
+
+        Log('[SEGURANÇA SUCESSO] Conexão P2P autorizada para ' + ClientIPStr + '! Permissão de controle: ' + BoolToStr(GrantedControlByte = 1, True));
+
+        // Restaura timeout padrão
+        OptVal := 0;
+        setsockopt(FClientSocket, SOL_SOCKET, SO_RCVTIMEO, PAnsiChar(@OptVal), SizeOf(OptVal));
 
         // Desativa algoritmo Nagle para menor latência
         OptVal := 1;
@@ -497,7 +566,8 @@ begin
         begin
           closesocket(FClientSocket);
           FClientSocket := INVALID_SOCKET;
-          Log('[STREAM SERVER] Cliente ' + ClientIPStr + ' desconectado.');
+          ReleaseAllInputKeys;
+          Log('[STREAM SERVER] Cliente ' + ClientIPStr + ' desconectado. Entradas liberadas.');
         end;
       end;
     finally
@@ -520,13 +590,16 @@ end;
 
 { TDeskStreamClient }
 
-constructor TDeskStreamClient.Create(const AHost: string; APort: Integer; const ALocalIP: string);
+constructor TDeskStreamClient.Create(const AHost: string; APort: Integer; const ALocalIP, ASessionId, AAuthToken: string; ARequestControl: Boolean);
 begin
   inherited Create(True);
   FreeOnTerminate := False;
   FHost := AHost;
   FPort := APort;
   FLocalIP := ALocalIP;
+  FSessionId := ASessionId;
+  FAuthToken := AAuthToken;
+  FCanControl := ARequestControl;
   FSocket := INVALID_SOCKET;
   FRunning := True;
   FConnected := False;
@@ -708,7 +781,9 @@ var
   IPList: TStringList;
   CandidateIP: string;
   CandidatePorts: array[0..2] of Integer;
-  PIdx, I, ConnectedPort: Integer;
+  PIdx, I, ConnectedPort, OptVal: Integer;
+  HelloPkt: THelloPacket;
+  GrantedControlByte: Byte;
 begin
   if WSAStartup($0202, WSAData) <> 0 then
   begin
@@ -779,6 +854,59 @@ begin
       Synchronize(@DoSyncFallbackRelay);
       Exit;
     end;
+
+    // Realiza Handshake de autenticação com o Host
+    Log('[STREAM CLIENT] Enviando credenciais de sessão para o host...');
+    Magic := DESK_MAGIC;
+    PktType := PKT_HELLO;
+    FillChar(HelloPkt, SizeOf(HelloPkt), 0);
+    HelloPkt.Version := 1;
+    if FCanControl then HelloPkt.CanControl := 1 else HelloPkt.CanControl := 0;
+    if FSessionId <> '' then
+      Move(FSessionId[1], HelloPkt.SessionId[0], Length(FSessionId));
+    if FAuthToken <> '' then
+      Move(FAuthToken[1], HelloPkt.AuthToken[0], Length(FAuthToken));
+
+    if not SendAll(Magic, SizeOf(Magic)) or
+       not SendAll(PktType, SizeOf(PktType)) or
+       not SendAll(HelloPkt, SizeOf(HelloPkt)) then
+    begin
+      Log('[STREAM CLIENT ERRO] Falha ao enviar aperto de mão ao host.');
+      closesocket(FSocket);
+      FSocket := INVALID_SOCKET;
+      Synchronize(@DoSyncFallbackRelay);
+      Exit;
+    end;
+
+    // Timeout de 3 segundos para resposta de autenticação
+    OptVal := 3000;
+    setsockopt(FSocket, SOL_SOCKET, SO_RCVTIMEO, PAnsiChar(@OptVal), SizeOf(OptVal));
+
+    if not RecvAll(Magic, SizeOf(Magic)) or (Magic <> DESK_MAGIC) or
+       not RecvAll(PktType, SizeOf(PktType)) then
+    begin
+      Log('[STREAM CLIENT ERRO] Host não respondeu ao aperto de mão de segurança.');
+      closesocket(FSocket);
+      FSocket := INVALID_SOCKET;
+      Synchronize(@DoSyncFallbackRelay);
+      Exit;
+    end;
+
+    if PktType <> PKT_HELLO_ACK then
+    begin
+      Log('[STREAM CLIENT ERRO] Conexão recusada pelo host (código ' + IntToStr(PktType) + '). Token ou Sessão inválidos.');
+      closesocket(FSocket);
+      FSocket := INVALID_SOCKET;
+      Exit;
+    end;
+
+    GrantedControlByte := 0;
+    RecvAll(GrantedControlByte, 1);
+    FCanControl := (GrantedControlByte = 1);
+    Log('[STREAM CLIENT SUCESSO] Autenticado com sucesso no host! Permissão de controle concedida: ' + BoolToStr(FCanControl, True));
+
+    OptVal := 0;
+    setsockopt(FSocket, SOL_SOCKET, SO_RCVTIMEO, PAnsiChar(@OptVal), SizeOf(OptVal));
 
     FConnected := True;
     FSyncPort := ConnectedPort;

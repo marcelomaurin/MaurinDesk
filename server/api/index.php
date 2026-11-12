@@ -71,5 +71,6 @@ try {
 } catch (\MaurinDesk\ApiError $e) {
     send_error($e->status,$e->errorCode,$e->getMessage());
 } catch (\Throwable $e) {
-    send_error(500,'INTERNAL_ERROR','Falha interna de processamento: '.$e->getMessage());
+    error_log('[MaurinDesk 500] ' . $e->getMessage() . ' em ' . $e->getFile() . ':' . $e->getLine());
+    send_error(500,'INTERNAL_ERROR','Falha interna de processamento.');
 }

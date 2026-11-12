@@ -21,6 +21,7 @@ procedure InjectMouseMove(NormX, NormY: Word);
 procedure InjectMouseButton(Button: Byte; IsDown: Boolean; NormX, NormY: Word);
 procedure InjectMouseWheel(Delta: SmallInt);
 procedure InjectKeyEvent(VirtualKey: Word; IsDown: Boolean);
+procedure ReleaseAllInputKeys;
 
 implementation
 
@@ -29,6 +30,8 @@ function CaptureScreenBitmap(out Bmp: Graphics.TBitmap): Boolean;
 var
   ScreenDC: HDC;
   ScreenWidth, ScreenHeight: Integer;
+  CursorInfo: TCursorInfo;
+  IconInfo: TIconInfo;
 begin
   Result := False;
   Bmp := nil;
@@ -50,6 +53,25 @@ begin
 
   try
     Result := BitBlt(Bmp.Canvas.Handle, 0, 0, ScreenWidth, ScreenHeight, ScreenDC, 0, 0, SRCCOPY);
+    if Result then
+    begin
+      // Desenha o ponteiro real do mouse sobre a imagem
+      FillChar(CursorInfo, SizeOf(CursorInfo), 0);
+      CursorInfo.cbSize := SizeOf(CursorInfo);
+      if GetCursorInfo(CursorInfo) and (CursorInfo.flags = 1) then
+      begin
+        FillChar(IconInfo, SizeOf(IconInfo), 0);
+        if GetIconInfo(CursorInfo.hCursor, IconInfo) then
+        begin
+          DrawIconEx(Bmp.Canvas.Handle,
+            CursorInfo.ptScreenPos.x - Integer(IconInfo.xHotspot),
+            CursorInfo.ptScreenPos.y - Integer(IconInfo.yHotspot),
+            CursorInfo.hCursor, 0, 0, 0, 0, DI_NORMAL);
+          if IconInfo.hbmMask <> 0 then DeleteObject(IconInfo.hbmMask);
+          if IconInfo.hbmColor <> 0 then DeleteObject(IconInfo.hbmColor);
+        end;
+      end;
+    end;
   finally
     ReleaseDC(0, ScreenDC);
   end;
@@ -133,11 +155,41 @@ procedure InjectKeyEvent(VirtualKey: Word; IsDown: Boolean);
 {$IFDEF WINDOWS}
 var
   Flags: DWORD;
+  ScanCode: Byte;
 begin
   Flags := 0;
+  ScanCode := Byte(MapVirtualKey(VirtualKey, 0));
+  // Trata teclas estendidas (setas, blocos de navegação, Alt Gr, Win, etc.)
+  case VirtualKey of
+    VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT,
+    VK_INSERT, VK_DELETE, VK_HOME, VK_END,
+    VK_PRIOR, VK_NEXT, VK_RMENU, VK_RCONTROL,
+    VK_LWIN, VK_RWIN:
+      Flags := Flags or KEYEVENTF_EXTENDEDKEY;
+  end;
   if not IsDown then
-    Flags := KEYEVENTF_KEYUP;
-  keybd_event(Byte(VirtualKey), 0, Flags, 0);
+    Flags := Flags or KEYEVENTF_KEYUP;
+  keybd_event(Byte(VirtualKey), ScanCode, Flags, 0);
+end;
+{$ELSE}
+begin
+end;
+{$ENDIF}
+
+procedure ReleaseAllInputKeys;
+{$IFDEF WINDOWS}
+begin
+  // Libera botões do mouse caso tenham ficado pressionados
+  mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+  mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0);
+  mouse_event(MOUSEEVENTF_MIDDLEUP, 0, 0, 0, 0);
+
+  // Libera teclas modificadoras comuns
+  keybd_event(VK_SHIFT, 0, KEYEVENTF_KEYUP, 0);
+  keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
+  keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
+  keybd_event(VK_LWIN, 0, KEYEVENTF_EXTENDEDKEY or KEYEVENTF_KEYUP, 0);
+  keybd_event(VK_RWIN, 0, KEYEVENTF_EXTENDEDKEY or KEYEVENTF_KEYUP, 0);
 end;
 {$ELSE}
 begin

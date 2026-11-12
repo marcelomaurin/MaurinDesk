@@ -10,19 +10,19 @@ function check(bool $condition,string $message): void {
 }
 $db=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 Schema::migrate($db);
-check($db->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColumn()==='0.2','new database reaches current version 0.2');
+check($db->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColumn()===Schema::VERSION,'new database reaches current version '.Schema::VERSION);
 check($db->query("SELECT versao FROM schema_migrations ORDER BY versao LIMIT 1")->fetchColumn()==='0.1','initial version 0.1 recorded before UI upgrade');
-check((int)$db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn()===2,'both ordered migrations recorded');
+check((int)$db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn()===6,'all ordered migrations recorded');
 $db->exec("INSERT INTO params VALUES('EXEMPLO','preservar')");
 Schema::migrate($db);
 check($db->query("SELECT valor FROM params WHERE chave='EXEMPLO'")->fetchColumn()==='preservar','existing parameter preserved');
-check((int)$db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn()===2,'history is not duplicated');
+check((int)$db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn()===6,'history is not duplicated');
 foreach (['device_endpoints','device_preferences','device_contacts'] as $table) {
     $db->exec('DROP TABLE '.$table); Schema::migrate($db);
     check((int)$db->query('SELECT COUNT(*) FROM '.$table)->fetchColumn()===0,'missing '.$table.' recreated');
 }
 $db->exec('DROP TABLE params'); Schema::migrate($db);
-check($db->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColumn()==='0.2','missing params restored without history conflict');
+check($db->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColumn()===Schema::VERSION,'missing params restored without history conflict');
 $db->exec("UPDATE params SET valor='99.0' WHERE chave='VERSAO'");
 try { Schema::migrate($db); check(false,'future version must fail'); }
 catch (RuntimeException $e) { check($e->getMessage()==='Database version incompatible with this server','downgrade rejected'); }
@@ -45,7 +45,7 @@ check($legacy->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColu
 check((int)$legacy->query("SELECT COUNT(*) FROM schema_migrations WHERE versao='0.2'")->fetchColumn()===0,'failed upgrade has no success record');
 check((int)$legacy->query("SELECT COUNT(*) FROM sqlite_master WHERE name='device_contacts'")->fetchColumn()===0,'failed SQLite upgrade rolls back new tables');
 $legacy->exec('DROP TRIGGER fail_history'); Schema::migrate($legacy);
-check($legacy->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColumn()==='0.2','retry upgrades legacy database to 0.2');
+check($legacy->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColumn()===Schema::VERSION,'retry upgrades legacy database to '.Schema::VERSION);
 check($legacy->query("SELECT public_key FROM devices WHERE id='old-device'")->fetchColumn()==='0000000007','upgrade preserves machine identity and leading zeroes');
 check($legacy->query("SELECT display_name FROM devices WHERE id='old-device'")->fetchColumn()==='Nome preservado','upgrade preserves machine name');
 check($legacy->query("SELECT language FROM device_preferences WHERE device_id='old-device'")->fetchColumn()==='pt-BR','upgrade seeds preferences for existing device');

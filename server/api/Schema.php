@@ -9,6 +9,16 @@ use Throwable;
 final class Schema {
     public const VERSION='0.6';
     public static function migrate(PDO $db): void {
+        // Fast path: se o banco já estiver na versão mais recente, não precisa travar nem verificar migrações a cada request
+        try {
+            $curVer = $db->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColumn();
+            if ($curVer === self::VERSION) {
+                return;
+            }
+        } catch (Throwable) {
+            // Tabela params ainda não existe, prossegue com o fluxo completo de migração
+        }
+
         $mysql=$db->getAttribute(PDO::ATTR_DRIVER_NAME)==='mysql';
         $lock=false; $lockName='maurindesk_schema';
         try {
@@ -65,15 +75,17 @@ final class Schema {
                     $sql=file_get_contents(__DIR__.'/'.$relative);
                     if ($sql===false) throw new RuntimeException('Missing migration');
                     if ($mysql) $db->exec('SET FOREIGN_KEY_CHECKS=0');
-                    $statements = preg_split('/;\s*(?:\r?\n|$)/', $sql);
+                    $cleanSql = preg_replace('/^\s*--.*$/m', '', $sql);
+                    $cleanSql = preg_replace('/\/\*.*?\*\//s', '', $cleanSql);
+                    $statements = preg_split('/;\s*(?:\r?\n|$)/', $cleanSql);
                     foreach ($statements as $statement) {
                         $s = trim($statement);
-                        if ($s === '' || str_starts_with($s, '--')) continue;
+                        if ($s === '') continue;
                         try {
                             $db->exec($s);
                         } catch (Throwable $e) {
                             $msg = strtolower($e->getMessage());
-                            if (str_contains($msg, 'duplicate') || str_contains($msg, 'already exists')) {
+                            if (str_contains($msg, 'duplicate') || str_contains($msg, 'already exists') || str_contains($msg, '1060')) {
                                 continue;
                             }
                             throw $e;

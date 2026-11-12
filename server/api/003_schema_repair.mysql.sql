@@ -1,17 +1,12 @@
 -- Migracao 0.3: Garantia e reparo da estrutura de tabelas MaurinDesk no MySQL / MariaDB
 
-ALTER TABLE devices
- ADD COLUMN IF NOT EXISTS id CHAR(36) NULL,
- ADD COLUMN IF NOT EXISTS public_key CHAR(10) NULL,
- ADD COLUMN IF NOT EXISTS registration_id CHAR(36) NULL,
- ADD COLUMN IF NOT EXISTS registration_hash CHAR(64) NULL,
- ADD COLUMN IF NOT EXISTS token_hash CHAR(64) NULL,
- ADD COLUMN IF NOT EXISTS token_expires BIGINT NULL,
- ADD COLUMN IF NOT EXISTS display_name VARCHAR(80) NULL,
- ADD COLUMN IF NOT EXISTS platform VARCHAR(40) NULL,
- ADD COLUMN IF NOT EXISTS app_version VARCHAR(40) NULL,
- ADD COLUMN IF NOT EXISTS last_seen BIGINT NULL,
- ADD COLUMN IF NOT EXISTS created_at BIGINT NULL;
+CREATE TABLE IF NOT EXISTS devices (
+ id CHAR(36) PRIMARY KEY, public_key CHAR(10) NOT NULL UNIQUE,
+ registration_id CHAR(36) NOT NULL UNIQUE, registration_hash CHAR(64) NOT NULL,
+ token_hash CHAR(64) NOT NULL UNIQUE, token_expires BIGINT NOT NULL,
+ display_name VARCHAR(80) NOT NULL, platform VARCHAR(40) NOT NULL,
+ app_version VARCHAR(40) NOT NULL, last_seen BIGINT NOT NULL, created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS sessions (
  id CHAR(36) PRIMARY KEY, requester_id CHAR(36) NOT NULL, host_id CHAR(36) NOT NULL,
@@ -60,7 +55,7 @@ CREATE TABLE IF NOT EXISTS device_endpoints (
  KEY idx_endpoints_device(device_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
-ALTER TABLE device_endpoints ADD COLUMN IF NOT EXISTS local_ip VARCHAR(45) NULL;
+ALTER TABLE device_endpoints ADD COLUMN local_ip VARCHAR(45) NULL;
 
 CREATE TABLE IF NOT EXISTS idempotency (
  device_id CHAR(36) NOT NULL,

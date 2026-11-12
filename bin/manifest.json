@@ -1,11 +1,11 @@
 {
-  "version": "0.6.0",
+  "version": "0.6.1",
   "platform": "windows-x64",
   "filename": "MaurinDesk.exe",
-  "bytes": 26729223,
-  "sha256": "714aa5ce7aa63604e2dc662a353e40a650d339c85338908ffba85eb1f544a79e",
+  "bytes": 26740913,
+  "sha256": "d7fe2ec743b551e83ce3fb7d387f696ce0aec56f6be82b88673e2bfc266e1960",
   "lazarus": "4.6",
   "fpc": "3.2.2",
-  "build_date": "2026-11-11",
-  "stage": "identity-presence-consent-anydesk-ui-screen-viewer-v0.6-multi-port-probing-server-relay-bridge"
+  "build_date": "2026-11-12",
+  "stage": "authenticated-p2p-handshake-permission-lock-nonblocking-close-sql-parser-fix"
 }

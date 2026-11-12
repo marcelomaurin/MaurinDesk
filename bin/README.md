@@ -1,10 +1,14 @@
 # Executáveis MaurinDesk
 
-- MaurinDesk.exe — versão inicial 0.2.0, Windows x64.
-- Compilado com Lazarus 4.6 / FPC 3.2.2.
-- Fonte de referência: 4a2eec17c4a52fb375b3e97b0eb7c412d30de20d.
-- SHA-256 e dependência CHATGPT em manifest.json.
+- **MaurinDesk.exe** — Versão 0.6.1, Windows x64.
+- Compilado com Lazarus 4.6 / FPC 3.2.2 nativo (sem DLLs externas).
+- SHA-256 e metadados detalhados em [manifest.json](manifest.json).
 
-O executável já inclui registro, presença, pedidos de conexão, consentimento e favoritos. Compartilhamento de tela e controle de mouse/teclado ainda não implementados. A API precisa ser implantada para uso no endereço oficial.
+Recursos disponíveis nesta versão:
+1. **Identidade e Presença**: Registro automático com chave única de 10 dígitos e token criptográfico.
+2. **Consentimento e Segurança**: Solicitação assistida de conexão; canal de streaming P2P com autenticação mandatória (`PKT_HELLO`), verificação de `SessionId`/`SessionToken` e bloqueio rigoroso de permissão ("Somente Visualizar" vs "Controle Total").
+3. **Multi-Port Probing P2P**: Teste automático e negociação das portas TCP `7071`, `8080` e `9876` com abertura automática de regras de Firewall no Windows via UAC nativo.
+4. **Modo Ponte (Servidor Relay)**: Fallback transparente através do Servidor HTTPS (`maurinsoft.com.br`) garantindo conectividade mesmo sob firewalls corporativos rígidos e sem NAT loopback.
+5. **Captura e Controle**: Renderização remota fluida com cursor visível na tela, injeção de mouse e teclado (com suporte a teclas estendidas) e liberação automática de teclas presas.
 
-O teste de inicialização --self-test passou antes da publicação.
+O teste de inicialização `--self-test` foi executado e validado com sucesso.

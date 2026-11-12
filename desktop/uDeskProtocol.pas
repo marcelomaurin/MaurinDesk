@@ -12,7 +12,9 @@ const
   DEFAULT_DESK_PORT = 7071;
 
   // Packet Types
-  PKT_HELLO       = $01;
+  PKT_HELLO       = $01; // Handshake autenticado
+  PKT_HELLO_ACK   = $03; // Autenticação aceita
+  PKT_HELLO_REJ   = $04; // Autenticação rejeitada
   PKT_FRAME       = $02; // Header + dados JPEG
   PKT_MOUSE_MOVE  = $10; // NormX: Word, NormY: Word
   PKT_MOUSE_DOWN  = $11; // Button: Byte, NormX: Word, NormY: Word
@@ -25,6 +27,14 @@ const
   PKT_CLOSE       = $FF;
 
 type
+  { Pacote de autenticação inicial (Handshake P2P) }
+  THelloPacket = packed record
+    Version: Word;
+    CanControl: Byte;
+    Reserved: Byte;
+    SessionId: array[0..36] of AnsiChar;
+    AuthToken: array[0..64] of AnsiChar;
+  end;
   { Cabeçalho de cada quadro de vídeo (12 bytes) }
   TFrameHeader = packed record
     FrameId: Cardinal;
