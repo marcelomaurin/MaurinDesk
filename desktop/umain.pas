@@ -261,7 +261,7 @@ begin
                 Identity.Get('registration_secret', ''),
                 GetEnvironmentVariable('COMPUTERNAME'),
                 'windows',
-                '0.6.3'
+                '0.6.4'
               );
             end;
             try
@@ -356,7 +356,7 @@ var
   NeedsElev: Boolean;
 begin
   inherited CreateNew(AOwner);
-  Caption := 'MaurinDesk v0.6.3 — Conexão Remota Assistida';
+  Caption := 'MaurinDesk v0.6.4 — Conexão Remota Assistida';
   SetBounds(100, 60, 980, 680);
   Constraints.MinWidth := 860;
   Constraints.MinHeight := 580;
@@ -524,7 +524,7 @@ begin
     Align := alRight;
     Alignment := taRightJustify;
     Width := 160;
-    Caption := 'MaurinDesk v0.6.3  ';
+    Caption := 'MaurinDesk v0.6.4  ';
     Font.Size := 9;
     Font.Style := [fsBold];
     Font.Color := RGBToColor(220, 38, 38);
@@ -559,7 +559,7 @@ begin
   with TLabel.Create(Self) do begin
     Parent := FSidebar;
     SetBounds(18, 36, 204, 16);
-    Caption := '● Software v0.6.3 (Build 2026-11-14)';
+    Caption := '● Software v0.6.4 (Build 2026-11-14)';
     Font.Size := 8;
     Font.Style := [fsBold];
     Font.Color := RGBToColor(14, 165, 233);
@@ -624,7 +624,7 @@ begin
   FBannerTitleLabel := TLabel.Create(Self);
   FBannerTitleLabel.Parent := FBannerPanel;
   FBannerTitleLabel.SetBounds(16, 10, 208, 20);
-  FBannerTitleLabel.Caption := 'MaurinDesk v0.6.3';
+  FBannerTitleLabel.Caption := 'MaurinDesk v0.6.4';
   FBannerTitleLabel.Font.Size := 11;
   FBannerTitleLabel.Font.Style := [fsBold];
   FBannerTitleLabel.Font.Color := clWhite;
@@ -915,7 +915,7 @@ begin
   ApplyLanguage;
 
   // Initial Log messages
-  LogMsg('MaurinDesk v0.6.3 (Build 2026-11-14) inicializado.');
+  LogMsg('MaurinDesk v0.6.4 (Build 2026-11-14) inicializado.');
   LogMsg('Servidor configurado: ' + FURL);
   LogMsg('Perfil local: ' + FProfile);
 

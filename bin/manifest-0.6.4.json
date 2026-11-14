@@ -1,0 +1,11 @@
+{
+  "version": "0.6.4",
+  "platform": "windows-x64",
+  "filename": "MaurinDesk-0.6.4.exe",
+  "bytes": 26748748,
+  "sha256": "4a00a4dd953b9eb334b1764f2d034f9024fc686f8e405c79ef7fad88b9e49a50",
+  "lazarus": "4.6",
+  "fpc": "3.2.2",
+  "build_date": "2026-11-14",
+  "stage": "fix-black-jpeg-native-capture-cache"
+}

@@ -1,5 +1,11 @@
 # Histórico
 
+## 0.6.4 — 14/11/2026
+- Corrigida a geração de JPEGs pretos: as operações nativas GDI de captura e desenho do cursor não notificavam o bitmap LCL, deixando o cache de pixels desatualizado na compactação.
+- Sincronização das operações GDI e invalidação do cache após captura e antes da conversão para JPEG, nos fluxos relay e P2P.
+- Teste nativo `tests/capture_regression.lpi`: imagem conhecida convertida para JPEG e decodificada com verificação das cores. Antes da correção, retornava RGB 0,0,0; após, RGB 231,40,21 para RGB esperado 230,40,20.
+- Executável Windows x64: `bin/MaurinDesk-0.6.4.exe`. Atualizar o computador que compartilha a tela para corrigir a imagem enviada; recomendado usar a mesma versão nos dois participantes.
+
 ## 0.6.3 — 14/11/2026
 - Diagnóstico PHP da sessão: IP público observado, IP local anunciado, presença, versão dos participantes e estado dos quadros, disponível aos dois participantes após o aceite.
 - Eventos persistidos em `audit_events` e no log de erros do PHP: pedido, entrega pela API, aceite, consulta do visualizador, primeiro quadro recebido e primeira resposta com imagem.

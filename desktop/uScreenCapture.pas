@@ -52,6 +52,7 @@ begin
   end;
 
   try
+    Bmp.Canvas.Changing;
     Result := BitBlt(Bmp.Canvas.Handle, 0, 0, ScreenWidth, ScreenHeight, ScreenDC, 0, 0, SRCCOPY);
     if Result then
     begin
@@ -71,6 +72,10 @@ begin
           if IconInfo.hbmColor <> 0 then DeleteObject(IconInfo.hbmColor);
         end;
       end;
+      // Native GDI writes bypass TCanvas and leave LCL's raw pixel cache stale.
+      // JPEG encoding reads that cache, so publish the completed native writes.
+      GdiFlush;
+      Bmp.Canvas.Changed;
     end;
   finally
     ReleaseDC(0, ScreenDC);
@@ -91,6 +96,11 @@ var
   Jpg: TJPEGImage;
 begin
   if (Bmp = nil) or (Stream = nil) then Exit;
+  {$IFDEF WINDOWS}
+  GdiFlush;
+  {$ENDIF}
+  // Also cover callers which draw with native GDI outside CaptureScreenBitmap.
+  Bmp.Canvas.Changed;
   Jpg := TJPEGImage.Create;
   try
     Jpg.Assign(Bmp);

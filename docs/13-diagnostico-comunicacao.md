@@ -1,5 +1,7 @@
 # Diagnóstico de comunicação — 0.6.3
 
+Atualização 0.6.4: quando os quadros são recebidos e decodificados, mas a imagem aparece preta, atualizar o host com `bin/MaurinDesk-0.6.4.exe`. Foi corrigido o cache de pixels da captura GDI antes da codificação JPEG, com teste nativo que reproduziu a falha. Recomenda-se atualizar os dois participantes.
+
 O estado `accepted` confirma que o PHP recebeu uma decisão de aceite do destino. Não confirma transmissão ou exibição de imagens.
 
 ## Atualização
