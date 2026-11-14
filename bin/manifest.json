@@ -1,11 +1,11 @@
 {
-  "version": "0.6.6",
+  "version": "0.6.7",
   "platform": "windows-x64",
   "filename": "MaurinDesk.exe",
-  "bytes": 28441209,
-  "sha256": "c8bc785593f4707b7356f1ab7fb0c8df58975587abc37f662405081a31088d30",
+  "bytes": 29222213,
+  "sha256": "fbfeaae7dfbc3b3f20e21bde5c602947be500a21b191aec0b0836724ff03de13",
   "lazarus": "4.6",
   "fpc": "3.2.2",
   "build_date": "2026-11-14",
-  "stage": "tray-icon-keyboard-files-receipts"
+  "stage": "bidirectional-file-manager"
 }

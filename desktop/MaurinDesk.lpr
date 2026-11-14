@@ -1,12 +1,21 @@
 program MaurinDesk;
 {$mode objfpc}{$H+}
 {$R *.res}
-uses Interfaces, Forms, SysUtils, Graphics, umain, setmain, uDeskSettings;
-var I: Integer; Bitmap: TBitmap; PNG: TPortableNetworkGraphic; Settings: TSetMain;
+uses Interfaces, Forms, SysUtils, Graphics, uDeskFileManager, umain, setmain, uDeskSettings;
+var I: Integer; Bitmap: TBitmap; PNG: TPortableNetworkGraphic; Settings: TSetMain; FilesForm: TDeskFileManager;
 begin
   RequireDerivedFormResource:=False;
   Application.Initialize;
   Application.Title:='MaurinDesk';
+  if (ParamCount>=2) and (ParamStr(1)='--render-files') then begin
+    FilesForm:=TDeskFileManager.CreateManager(nil,nil);
+    if ParamCount>=4 then FilesForm.SetBounds(0,0,StrToInt(ParamStr(3)),StrToInt(ParamStr(4)));
+    FilesForm.Show; Application.ProcessMessages;
+    Bitmap:=TBitmap.Create; PNG:=TPortableNetworkGraphic.Create;
+    try Bitmap.SetSize(FilesForm.Width,FilesForm.Height); FilesForm.PaintTo(Bitmap.Canvas,0,0); PNG.Assign(Bitmap); PNG.SaveToFile(ParamStr(2));
+    finally PNG.Free; Bitmap.Free; FilesForm.Free; end;
+    Exit;
+  end;
   if (ParamCount>=2) and (ParamStr(1)='--render-settings') then begin
     Settings:=TSetMain.Create(ExpandFileName(ExtractFilePath(Application.ExeName)+'../build/ui-preview'),'');
     try RenderSettingsPreview(Settings,ParamStr(2)); finally Settings.Free; end;

@@ -1,8 +1,8 @@
 program desktop_features;
 {$mode objfpc}{$H+}{$codepage utf8}
-uses Interfaces, Forms, Classes, Windows, SysUtils, Graphics, fpjson, uDeskClipboardData, uDeskUpdate, setmain;
+uses Interfaces, Forms, Classes, Windows, SysUtils, Graphics, fpjson, uDeskFileSystem, uDeskClipboardData, uDeskUpdate, setmain;
 var Root, SourceDir, DestDir, PackageName, HashFile: string; Paths, Received: TStringList;
-    Settings, Reloaded: TSetMain; Data: TJSONObject; Count, IconSize: Integer; IconModule: HMODULE; LoadedIcon: HICON; LoadedGraphic: TIcon;
+    Settings, Reloaded: TSetMain; Data: TJSONObject; Count, IconSize: Integer; Rejected: Boolean; IconModule: HMODULE; LoadedIcon: HICON; LoadedGraphic: TIcon;
 procedure Check(Value: Boolean; const Msg: string);
 begin if not Value then raise Exception.Create('FAIL: '+Msg); Inc(Count); WriteLn('OK ',Msg); end;
 procedure WriteBytes(const Path, Data: string);
@@ -39,6 +39,22 @@ begin
       BadPath('a//b'); BadPath('NUL.txt'); BadPath('COM1'); BadPath('name:stream'); BadPath('trailing.'); BadPath('trailing ');
       Check(SafeClipboardPath('Pasta/ação.txt'),'safe Unicode relative paths accepted');
     finally Received.Free; Paths.Free; end;
+    ForceDirectories(Root+'Final');
+    Data:=PlaceFilePackage(PackageName,Root+'Stage1',Root+'Final',False); Data.Free;
+    Check(ReadBytes(Root+'Final/Origem/ação.txt')=ReadBytes(SourceDir+'/ação.txt'),'explicit final destination preserves Unicode');
+    Check(DirectoryExists(Root+'Final/Origem/Pasta vazia'),'explicit final destination preserves empty folders');
+    WriteBytes(Root+'Final/outro.txt','Preserve');
+    Rejected:=False; try Data:=PlaceFilePackage(PackageName,Root+'Stage2',Root+'Final',False); Data.Free; except on E: Exception do Rejected:=True; end;
+    Check(Rejected and (ReadBytes(Root+'Final/outro.txt')='Preserve'),'existing files preserved without overwrite');
+    WriteBytes(Root+'Final/Origem/keep.txt','Keep extra');
+    Data:=PlaceFilePackage(PackageName,Root+'Stage3',Root+'Final',True); Data.Free;
+    Check(ReadBytes(Root+'Final/outro.txt')='Segundo arquivo','explicit overwrite replaces contents');
+    Check(ReadBytes(Root+'Final/Origem/keep.txt')='Keep extra','folder merge preserves extra files');
+    Data:=ReadDiskDirectory(Root+'Final','outro',0);
+    Check(Data.Arrays['entries'].Count=1,'directory filtering lists actual destination'); Data.Free;
+    MakeDiskDirectory(Root+'Final','Nova pasta'); Check(DirectoryExists(Root+'Final/Nova pasta'),'create directory in selected destination');
+    Rejected:=False; try MakeDiskDirectory(Root+'Final','../outside'); except on E: Exception do Rejected:=True; end; Check(Rejected,'mkdir traversal blocked');
+    Rejected:=False; try NormalizeDiskPath('C:relative',False); except on E: Exception do Rejected:=True; end; Check(Rejected,'relative drive path blocked');
     WriteBytes(HashFile,'abc');
     Check(FileSHA256(HashFile)='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad','native SHA-256 known vector');
     Check(VersionIsNewer('0.6.10','0.6.9'),'numeric version order handles double digits');
@@ -46,7 +62,7 @@ begin
     Check(not VersionIsNewer('0.6.4','0.6.6'),'older version does not update');
     Check(not VersionIsNewer('malicious','0.6.6'),'invalid version does not update');
     Check(not VersionIsNewer('0."7".0','0.6.6'),'quoted version does not update');
-    Check(ExecutableVersion(ExpandFileName(Root+'../../bin/MaurinDesk.exe'))='0.6.6.0','executable version resource matches release');
+    Check(ExecutableVersion(ExpandFileName(Root+'../../bin/MaurinDesk.exe'))='0.6.7.0','executable version resource matches release');
     IconModule:=LoadLibraryExW(PWideChar(UTF8Decode(ExpandFileName(Root+'../../bin/MaurinDesk.exe'))),0,LOAD_LIBRARY_AS_DATAFILE);
     Check(IconModule<>0,'executable resources available');
     try

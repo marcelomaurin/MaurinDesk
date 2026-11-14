@@ -160,8 +160,16 @@ begin
   if not AIRemoteValidKey(Key) then raise Exception.Create('Chave deve conter 10 digitos');
   B := TJSONObject.Create(['target_key',Key]);
   P := TJSONArray.Create(['screen.view']); B.Add('requested_permissions',P);
-  if Control then begin P.Add('input.mouse'); P.Add('input.keyboard'); P.Add('clipboard.sync'); end;
-  try Result := DeskAPIRequest(URL,Token,AllowLocal,'POST','/sessions',B); finally B.Free; end;
+  if Control then begin P.Add('input.mouse'); P.Add('input.keyboard'); P.Add('clipboard.sync'); P.Add('files.transfer'); end;
+  try
+    try Result := DeskAPIRequest(URL,Token,AllowLocal,'POST','/sessions',B);
+    except on E: EAIRemoteAPI do begin
+      if not Control or (E.Status<>400) or (E.Code<>'VALIDATION_ERROR') then raise;
+      // Older APIs can still establish screen/control sessions without file-manager permission.
+      P.Delete(P.Count-1);
+      Result := DeskAPIRequest(URL,Token,AllowLocal,'POST','/sessions',B);
+    end; end;
+  finally B.Free; end;
 end;
 function DeskAcceptControl(const URL, Token, Id: string; AllowLocal: Boolean; Requested: TJSONArray): TJSONObject;
 var B: TJSONObject; P: TJSONArray; I: Integer;
@@ -169,7 +177,7 @@ begin
   B := TJSONObject.Create(['decision','accept']);
   P := TJSONArray.Create(['screen.view','input.mouse','input.keyboard']); B.Add('granted_permissions',P);
   if Requested <> nil then for I := 0 to Requested.Count - 1 do
-    if Requested.Strings[I] = 'clipboard.sync' then P.Add('clipboard.sync');
+    if (Requested.Strings[I] = 'clipboard.sync') or (Requested.Strings[I] = 'files.transfer') then P.Add(Requested.Strings[I]);
   try Result := DeskAPIRequest(URL,Token,AllowLocal,'POST','/sessions/' + Id + '/decision',B); finally B.Free; end;
 end;
 end.

@@ -1,11 +1,11 @@
 {
-  "version": "0.6.6",
+  "version": "0.6.7",
   "platform": "windows-x64",
   "filename": "MaurinDesk.exe",
   "download_url": "https://raw.githubusercontent.com/marcelomaurin/MaurinDesk/fila/bin/MaurinDesk.exe",
-  "bytes": 28441209,
-  "sha256": "c8bc785593f4707b7356f1ab7fb0c8df58975587abc37f662405081a31088d30",
+  "bytes": 29222213,
+  "sha256": "fbfeaae7dfbc3b3f20e21bde5c602947be500a21b191aec0b0836724ff03de13",
   "build_date": "2026-11-14",
-  "minimum_api_schema": "0.8",
-  "release_notes": "Ícone da área do relógio, correção de desconexão por teclado, envio explícito de arquivos/pastas e confirmação de recebimento."
+  "minimum_api_schema": "0.9",
+  "release_notes": "Gerenciador de arquivos local/remoto com envio e recebimento de arquivos e pastas para o destino escolhido, progresso e confirmacao de gravacao."
 }

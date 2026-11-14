@@ -7,7 +7,7 @@ use Throwable;
 
 /** Ordered migrations. VERSAO changes only after successful schema changes. */
 final class Schema {
-    public const VERSION='0.8';
+    public const VERSION='0.9';
     public static function migrate(PDO $db): void {
         // Fast path: se o banco já estiver na versão mais recente, não precisa travar nem verificar migrações a cada request
         try {
@@ -19,7 +19,7 @@ final class Schema {
                     FROM devices d,device_endpoints e,device_preferences pref,device_contacts c,
                     sessions s,session_relay_frames f,session_relay_inputs i,session_ports p,
                     audit_events a,device_logs l,schema_migrations m,api_mutex mutex,idempotency idem,rate_limits r,
-                    clipboard_transfers ct,clipboard_chunks cc
+                    clipboard_transfers ct,clipboard_chunks cc,file_commands fc,file_transfers ft,file_chunks fch
                     WHERE 1=0');
                 return;
             }
@@ -80,6 +80,9 @@ final class Schema {
                 '0.8'=>['descricao'=>'Confirmacao do recebimento de arquivos e clipboard',
                     'repairable'=>true,
                     'files'=>$mysql ? ['009_clipboard_receipt.mysql.sql'] : ['009_clipboard_receipt.sqlite.sql']],
+                '0.9'=>['descricao'=>'Gerenciador de arquivos local e remoto com destinos explicitos',
+                    'repairable'=>true,
+                    'files'=>$mysql ? ['010_file_manager.mysql.sql'] : ['010_file_manager.sqlite.sql']],
             ];
             foreach ($migrations as $version=>$migration) {
                 // Baseline CREATE IF NOT EXISTS also restores missing tables.

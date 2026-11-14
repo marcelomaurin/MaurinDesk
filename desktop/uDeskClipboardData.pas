@@ -55,14 +55,16 @@ procedure BuildClipboardFiles(Paths: TStrings; const Target: string);
 var Manifest: TJSONObject; Entries, RootNames: TJSONArray; Sources, Names: TStringList;
     OutFile, Input: TFileStream; Raw: string; Len: Cardinal; Total, Size: Int64; I: Integer;
   procedure AddPath(const DiskPath, Relative: string; Depth: Integer);
-  var Search: TSearchRec; F: TFileStream;
+  var Search: TSearchRec; F: TFileStream; FindResult: Integer;
   begin
     if (Depth > 64) or (Entries.Count >= 10000) or not SafeClipboardPath(Relative) then
       raise Exception.Create('Quantidade ou nome de arquivos nao suportado');
     RejectReparse(DiskPath);
     if DirectoryExistsUTF8(DiskPath) then begin
       Entries.Add(TJSONObject.Create(['path', Relative, 'kind', 'dir', 'size', 0])); Sources.Add('');
-      if FindFirstUTF8(IncludeTrailingPathDelimiter(DiskPath) + '*', faAnyFile, Search) = 0 then
+      FindResult:=FindFirstUTF8(IncludeTrailingPathDelimiter(DiskPath) + '*', faAnyFile, Search);
+      if (FindResult<>0) and (FindResult<>ERROR_FILE_NOT_FOUND) and (FindResult<>ERROR_NO_MORE_FILES) then raise Exception.Create('Pasta sem acesso: '+DiskPath);
+      if FindResult=0 then
       try
         repeat
           if (Search.Name <> '.') and (Search.Name <> '..') then

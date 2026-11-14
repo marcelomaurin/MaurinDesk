@@ -1,5 +1,13 @@
 # Histórico
 
+## 0.6.7 — 14/11/2026
+
+- Gerenciador de arquivos em dois painéis (local/remoto), navegação por unidades e pastas, filtro, paginação e criação de pastas.
+- Enviar e receber múltiplos arquivos ou pastas para a pasta escolhida no painel de destino, com progresso e confirmação de gravação no disco.
+- Arquivos existentes preservados por padrão; substituição explícita mescla pastas e mantém os outros arquivos. Transferência sem executar os arquivos recebidos.
+- Permissão `files.transfer` no aceite de controle; visualização sozinha não dá acesso aos arquivos. Mensagens e partes binárias isoladas por sessão na API 0.9, com limpeza ao encerrar.
+- Testes da API e dos dois serviços nativos contra o PHP local, incluindo binários, Unicode, pastas vazias, destinos finais e erros remotos.
+
 ## 0.6.6 — 14/11/2026
 - Reproduzida e corrigida a desconexão acidental ao pressionar Enter no visualizador: foco dedicado à imagem remota e consumo das teclas remotas, evitando acionamento dos botões locais. Teclas pressionadas são liberadas ao perder foco.
 - Ícone MaurinDesk multi-resolução incorporado ao executável e carregado explicitamente na área do relógio. O programa não fica oculto caso o Windows não confirme o ícone.

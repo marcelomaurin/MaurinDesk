@@ -5,7 +5,7 @@ uses Classes, SysUtils, DateUtils, Forms, Controls, StdCtrls, ExtCtrls, Dialogs,
   Graphics, Menus, Clipbrd, IniFiles, md5, LCLIntf,
   fpjson, jsonparser, airemoteidentity, airemotesignaling,
   uDeskProtocol, uScreenCapture, uDeskStream, uRemoteViewer, uDeskRelay, uDeskI18n, uDeskFirewall,
-  uDeskHTTP, uDeskClipboard, uDeskUI, setmain, uDeskSettings, uDeskUpdate;
+  uDeskFiles, uDeskFileManager, uDeskHTTP, uDeskClipboard, uDeskUI, setmain, uDeskSettings, uDeskUpdate;
 
 type
   TMainForm = class;
@@ -44,6 +44,8 @@ type
     FRelayClient: TDeskRelayClient;
     FRelayHost: TDeskRelayHost;
     FClipboardThread: TDeskClipboardThread;
+    FFiles: TDeskFiles;
+    FFileManager: TDeskFileManager;
     FRemoteViewer: TfRemoteViewer;
     FIsController: Boolean;
     FSessionCanControl: Boolean;
@@ -205,6 +207,8 @@ type
     procedure StopStreaming;
     procedure StartRelayStreaming;
     procedure StartClipboard(Session: TJSONObject);
+    procedure StartFiles(Session: TJSONObject);
+    procedure FileEvent(Sender: TObject; Data: TJSONObject);
     procedure HandleStreamLog(Sender: TObject; const Msg: string);
     procedure HandleFallbackToRelay(Sender: TObject);
     procedure HandlePortSuccess(Sender: TObject; APort: Integer);
@@ -316,7 +320,7 @@ begin
                 Identity.Get('registration_secret', ''),
                 GetEnvironmentVariable('COMPUTERNAME'),
                 'windows',
-                '0.6.6'
+                '0.6.7'
               );
             end;
             try
@@ -442,7 +446,7 @@ begin
   FNavConnect.Selected := True;
   FBannerPanel := Panel(FSidebar); FBannerPanel.Align := alBottom; FBannerPanel.Height := 100;
   FBannerTitleLabel := LabelAt(FBannerPanel,'MaurinDesk',20,12,160,22,11,True);
-  FBannerBuildLabel := LabelAt(FBannerPanel,'v0.6.6',20,36,160,20,9);
+  FBannerBuildLabel := LabelAt(FBannerPanel,'v0.6.7',20,36,160,20,9);
   FBannerWebLabel := LabelAt(FBannerPanel,'maurinsoft.com.br',20,61,160,20,9);
   FBannerWebLabel.Font.Color := RGBToColor(126,135,151);
   FContentArea := Panel(Self); FContentArea.Align := alClient; FContentArea.Color := RGBToColor(248,249,252);
@@ -500,7 +504,7 @@ begin
   FBtnStop := ButtonAt(FActiveSessionPanel,'Encerrar sessão',@StopClick);
   FIncomingPanel := Panel(FContentArea,True); FIncomingPanel.Color := RGBToColor(255,248,231); FIncomingPanel.Visible := False;
   FIncomingText := LabelAt(FIncomingPanel,'Solicitação de conexão',16,10,780,42,9,True); FIncomingText.WordWrap := True;
-  FBtnAcceptControl := ButtonAt(FIncomingPanel,'Controle + área de transferência',@AcceptControlClick);
+  FBtnAcceptControl := ButtonAt(FIncomingPanel,'Controle + arquivos',@AcceptControlClick);
   FBtnAcceptControl.Primary := True; FBtnAcceptControl.Font.Size := 9;
   FBtnAcceptView := ButtonAt(FIncomingPanel,'Só visualizar',@AcceptViewClick);
   FBtnReject := ButtonAt(FIncomingPanel,'Recusar',@RejectClick);
@@ -607,8 +611,11 @@ begin
   except on E: Exception do begin FTrayAvailable:=False; LogMsg('[BANDEJA ERRO] '+E.Message); end; end;
 end;
 procedure TMainForm.FileTransferMenuClick(Sender: TObject);
-var P: TPoint;
-begin P:=FBtnTransfer.ClientToScreen(Point(0,FBtnTransfer.Height)); FTransferMenu.Popup(P.X,P.Y); end;
+begin
+  if (FFiles=nil) or FFiles.Finished then begin ShowMessage('Conecte com permissao de arquivos. Atualize os dois computadores e a API.'); Exit; end;
+  if FFileManager=nil then begin FFileManager:=TDeskFileManager.CreateManager(Self,FFiles); end;
+  FFileManager.Show; FFileManager.BringToFront;
+end;
 procedure TMainForm.QueueSelectedFiles(Sender: TObject; Paths: TStrings);
 begin
   if (FClipboardThread=nil) or FClipboardThread.Finished or FStoppingSession then begin
@@ -687,7 +694,7 @@ var
   NeedsElev: Boolean;
 begin
   inherited CreateNew(AOwner);
-  Caption := 'MaurinDesk v0.6.6 — Conexão Remota Assistida';
+  Caption := 'MaurinDesk v0.6.7 — Conexão Remota Assistida';
   SetBounds(100, 60, 1220, 840);
   Constraints.MinWidth := 1000;
   Constraints.MinHeight := 700;
@@ -745,7 +752,7 @@ begin
   ApplyLanguage;
 
   // Initial Log messages
-  LogMsg('MaurinDesk v0.6.6 (Build 2026-11-14) inicializado.');
+  LogMsg('MaurinDesk v0.6.7 (Build 2026-11-14) inicializado.');
   LogMsg('Servidor configurado: ' + FURL);
   LogMsg('Perfil local: ' + FProfile);
 
@@ -1097,7 +1104,7 @@ begin
         ReqKey := FormatDeskKey(J.Get('requester_key', ''));
         ReqName := J.Get('requester_name', '');
         FIncomingText.Caption := 'Solicitação recebida de: ' + ReqKey + ' (' + ReqName + ')' +
-          #13#10'Autorize apenas quem você conhece.';
+          #13#10'Controle permite mouse, teclado, area de transferencia e acesso aos arquivos.';
         FIncomingPanel.Visible := True;
         if FLastIncomingId<>J.Get('id','') then begin
           FLastIncomingId:=J.Get('id','');
@@ -1117,7 +1124,7 @@ begin
         FActiveSessionText.Caption := 'Sessão atual: ' + State + ' (Chave: ' + FTarget.Text + ')';
         FActiveSessionPanel.Visible := (State = 'accepted') or (State = 'active') or (State = 'pending');
         LogMsg('[STATUS SESSÃO] Estado atual: ' + State);
-        if (State = 'accepted') or (State = 'active') or (State = 'connecting') then StartClipboard(J);
+        if (State = 'accepted') or (State = 'active') or (State = 'connecting') then begin StartClipboard(J); StartFiles(J); end;
         if (State = 'accepted') and FIsController then RememberRemote;
         CommObj := TJSONObject(J.Find('communication'));
         if CommObj <> nil then begin
@@ -1153,7 +1160,7 @@ begin
                   FSessionCanControl := True;
             FRemoteViewer := TfRemoteViewer.CreateViewer(Self, FTarget.Text, FSessionCanControl, nil);
             FRemoteViewer.OnCloseSession := @ViewerClosed;
-            FRemoteViewer.OnSendFiles:=@QueueSelectedFiles; FRemoteViewer.OnOpenReceived:=@OpenReceivedFiles;
+            FRemoteViewer.OnOpenFileManager:=@FileTransferMenuClick; FRemoteViewer.OnSendFiles:=@QueueSelectedFiles; FRemoteViewer.OnOpenReceived:=@OpenReceivedFiles;
             FRemoteViewer.Show;
             LogMsg('[VIEWER] Janela do visualizador remoto aberta!');
 
@@ -1220,7 +1227,7 @@ begin
 
       // Armazena a permissão explicitamente decidida pelo usuário no consentimento
       FSessionCanControl := (W.Operation = opAcceptControl);
-      StartClipboard(W.Data);
+      StartClipboard(W.Data); StartFiles(W.Data);
 
       // Inicia servidor de captura de tela no Host com controle rigoroso e autenticação por token
       if FStreamServer = nil then begin
@@ -1338,6 +1345,8 @@ begin
   if FStoppingStreams then Exit;
   FStoppingStreams:=True;
   try
+  if FFileManager<>nil then begin FFileManager.Bind(nil); FreeAndNil(FFileManager); end;
+  if FFiles<>nil then begin FFiles.OnEvent:=nil; FFiles.Terminate; FFiles.WaitFor; FreeAndNil(FFiles); end;
   if FClipboardThread <> nil then begin
     FClipboardThread.Terminate;
     FClipboardThread.WaitFor;
@@ -1371,6 +1380,22 @@ begin
     FreeAndNil(FRelayHost);
   end;
   finally FStoppingStreams:=False; end;
+end;
+
+procedure TMainForm.StartFiles(Session: TJSONObject);
+var P: TJSONArray; I: Integer;
+begin
+  if (Session=nil) or (FFiles<>nil) or FStoppingSession then Exit;
+  P:=Session.Arrays['granted_permissions']; if P=nil then Exit;
+  for I:=0 to P.Count-1 do if P.Strings[I]='files.transfer' then begin
+    FFiles:=TDeskFiles.Create(FURL,FToken,FSessionId,FAllowLocal); FFiles.OnEvent:=@FileEvent; FFiles.Start; Exit;
+  end;
+end;
+procedure TMainForm.FileEvent(Sender: TObject; Data: TJSONObject);
+begin
+  if FFileManager<>nil then FFileManager.HandleEvent(Data);
+  if (Data.Get('event','')='service_error') or (Data.Get('state','')='completed') or (Data.Get('state','')='error') then
+    LogMsg('[ARQUIVOS] '+Data.Get('message','')+' '+Data.Get('destination',''));
 end;
 
 procedure TMainForm.StartClipboard(Session: TJSONObject);
@@ -1455,7 +1480,7 @@ begin
   FRecentTitle.Caption := Text('Conexões recentes','Recent connections','Conexiones recientes');
   if FNavigation=1 then FRecentTitle.Caption:=FNavFavorites.Caption else if FNavigation=2 then FRecentTitle.Caption:=FNavHistory.Caption;
   FRecentHint.Caption := Text('Duplo clique para conectar','Double-click to connect','Doble clic para conectar');
-  FBtnAcceptControl.Caption := Text('Controle + área de transferência','Control + clipboard','Control + portapapeles');
+  FBtnAcceptControl.Caption := Text('Controle + arquivos','Control + files','Control + archivos');
   FBtnAcceptView.Caption := _T(strBtnAcceptView); FBtnReject.Caption := _T(strBtnReject); FBtnStop.Caption := _T(strBtnEndSession);
   FLogTitleLabel.Caption := Text('⌄  Diagnóstico da conexão','⌄  Connection diagnostics','⌄  Diagnóstico de conexión');
   FBtnTestConn.Caption := _T(strBtnTestConn); FBtnCopyLog.Caption := _T(strBtnCopyLog);

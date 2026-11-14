@@ -1,4 +1,20 @@
-# MaurinDesk 0.6.5
+# MaurinDesk 0.6.7
+
+## Gerenciador de arquivos 0.6.7
+
+Publicar `server/api/` na hospedagem preservando o `.env` (migração automática para 0.9), atualizar os dois computadores e abrir uma nova sessão com **Controle + arquivos**. O GitHub distribui o aplicativo, mas não publica o PHP na hospedagem.
+
+Em **Arquivos e pastas**, o painel esquerdo mostra este computador e o direito mostra o outro participante da sessão. Abra uma pasta com duplo clique ou digite seu caminho e pressione Enter. **Acima** permite chegar à lista de unidades. Há filtro por nome, paginação, atualização e criação de pastas nos dois lados.
+
+1. Para enviar, selecione arquivos ou pastas à esquerda, abra a pasta final à direita e clique **Enviar →**.
+2. Para receber, selecione à direita, abra a pasta final à esquerda e clique **← Receber**.
+3. A fila mostra origem, destino, progresso e resultado. A conclusão indica gravação confirmada pelo destino; upload no PHP ainda não significa entrega.
+
+Por padrão um nome existente provoca erro sem sobrescrever o item. Ative **Substituir arquivos existentes (mesclar pastas)** para substituir arquivos e mesclar diretórios, preservando outros arquivos da pasta. A gravação de cada arquivo usa substituição local de um temporário; um erro de disco durante uma pasta grande pode deixar parte dos arquivos já concluídos.
+
+Suporta até 128 itens selecionados, 255 MiB de conteúdo por pacote, 10 mil entradas e profundidade 64. Pastas vazias e nomes Unicode são preservados. Links, junções e unidades de rede são recusados. Só são acessadas pastas permitidas ao usuário Windows. Erros de acesso e de preparação remota aparecem na fila. Fechar a janela mantém a fila; encerrar a sessão interrompe as transferências. Os arquivos temporários de recebimento são removidos após a tentativa de gravação, sem apagar a pasta final.
+
+O Ctrl+C/Ctrl+V continua funcionando separadamente. No gerenciador os arquivos são gravados diretamente na pasta final escolhida, sem alterar a área de transferência.
 
 ## Atualização 0.6.6
 
@@ -14,7 +30,7 @@ O ícone próprio está incorporado em vários tamanhos. Se o Windows não confi
 
 ## Atualização inicial
 
-1. Publicar todo o conteúdo de `server/api/` na hospedagem, preservando o `.env`. O banco migra automaticamente para `0.7`, incluindo as tabelas do clipboard.
+1. Publicar todo o conteúdo de `server/api/` na hospedagem, preservando o `.env`. O banco migra automaticamente para `0.9`, incluindo as tabelas do clipboard.
 2. Fechar a versão anterior e usar `bin/MaurinDesk.exe` nos dois computadores. Aplicativos anteriores à 0.6.5 precisam dessa atualização manual inicial, pois ainda não contêm o atualizador.
 3. Fazer uma nova solicitação e aceitar **Controle + área de transferência** no destino.
 
@@ -75,6 +91,8 @@ O script gera sempre `bin/MaurinDesk.exe` e atualiza `bin/manifest.json` e `upda
 
 ## Validação
 
+- `tests/server/files.php`: navegação remota, consentimento de arquivos, destinos, isolamento, partes binárias e comprovantes; inclui a suíte anterior.
+- `tests/file_service_probe.lpi` e `tests/file_service_smoke.py`: dois serviços nativos com PHP local, listagem, envio, recebimento, integridade no destino e falha de origem remota.
 - `tests/server/clipboard.php`: sinalização, permissões, isolamento por sessão, texto Unicode, partes binárias, integridade e remoção no encerramento.
 - `tests/server/schema.php` e `tests/http_smoke.py`: migração e fronteiras HTTP.
 - `tests/desktop_features.lpi`: pacotes de arquivos e diretórios, nomes Unicode, bloqueio de caminhos inválidos, SHA-256, versões e configurações.

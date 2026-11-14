@@ -25,6 +25,7 @@ type
     FTransferStatus: TLabel;
     FOnSendFiles: TSendFilesEvent;
     FOnOpenReceived: TNotifyEvent;
+    FOnOpenFileManager: TNotifyEvent;
     FCloseReason: string;
     FStatusLabel: TLabel;
     FFPSLabel: TLabel;
@@ -68,6 +69,7 @@ type
     procedure SetPortConnected(APort: Integer);
     procedure SetErrorMessage(const Msg: string);
     procedure SetTransferStatus(const Msg: string);
+    property OnOpenFileManager: TNotifyEvent read FOnOpenFileManager write FOnOpenFileManager;
     property OnSendFiles: TSendFilesEvent read FOnSendFiles write FOnSendFiles;
     property OnOpenReceived: TNotifyEvent read FOnOpenReceived write FOnOpenReceived;
     property CloseReason: string read FCloseReason;
@@ -480,7 +482,7 @@ procedure TfRemoteViewer.SetTransferStatus(const Msg: string);
 begin FTransferStatus.Caption:=Msg; end;
 procedure TfRemoteViewer.FilesMenuClick(Sender: TObject);
 var P: TPoint;
-begin ReleaseRemoteKeys; P:=FBtnFiles.ClientToScreen(Point(0,FBtnFiles.Height)); FFilesMenu.PopUp(P.X,P.Y); end;
+begin ReleaseRemoteKeys; if Assigned(FOnOpenFileManager) then begin FOnOpenFileManager(Self); Exit; end; P:=FBtnFiles.ClientToScreen(Point(0,FBtnFiles.Height)); FFilesMenu.PopUp(P.X,P.Y); end;
 procedure TfRemoteViewer.SendFilesClick(Sender: TObject);
 var Dialog: TOpenDialog;
 begin

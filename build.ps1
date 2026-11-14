@@ -13,15 +13,15 @@ try {
     $manifest = [ordered]@{
         version = $version; platform = 'windows-x64'; filename = 'MaurinDesk.exe'
         bytes = $binary.Length; sha256 = $hash; lazarus = '4.6'; fpc = '3.2.2'
-        build_date = (Get-Date -Format 'yyyy-MM-dd'); stage = 'tray-icon-keyboard-files-receipts'
+        build_date = (Get-Date -Format 'yyyy-MM-dd'); stage = 'bidirectional-file-manager'
     }
     $manifest | ConvertTo-Json | Set-Content -LiteralPath 'bin/manifest.json' -Encoding utf8
     $update = [ordered]@{
         version = $version; platform = 'windows-x64'; filename = 'MaurinDesk.exe'
         download_url = 'https://raw.githubusercontent.com/marcelomaurin/MaurinDesk/fila/bin/MaurinDesk.exe'
         bytes = $binary.Length; sha256 = $hash; build_date = $manifest.build_date
-        minimum_api_schema = '0.8'
-        release_notes = 'Ícone da área do relógio, correção de desconexão por teclado, envio explícito de arquivos/pastas e confirmação de recebimento.'
+        minimum_api_schema = '0.9'
+        release_notes = 'Gerenciador de arquivos local/remoto com envio e recebimento de arquivos e pastas para o destino escolhido, progresso e confirmacao de gravacao.'
     }
     $update | ConvertTo-Json | Set-Content -LiteralPath 'update.json' -Encoding utf8
     Write-Output "Gerado bin/MaurinDesk.exe v$version e metadados de atualização."

@@ -3,7 +3,7 @@ unit uDeskUpdate;
 interface
 uses Classes, SysUtils, fpjson;
 const
-  DESK_VERSION = '0.6.6';
+  DESK_VERSION = '0.6.7';
   DESK_UPDATE_URL = 'https://raw.githubusercontent.com/marcelomaurin/MaurinDesk/fila/update.json';
   DESK_DOWNLOAD_URL = 'https://raw.githubusercontent.com/marcelomaurin/MaurinDesk/fila/bin/MaurinDesk.exe';
 function VersionIsNewer(const Candidate, Current: string): Boolean;

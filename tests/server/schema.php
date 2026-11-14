@@ -12,12 +12,12 @@ $db=new PDO('sqlite::memory:',null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTI
 Schema::migrate($db);
 check($db->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColumn()===Schema::VERSION,'new database reaches current version '.Schema::VERSION);
 check($db->query("SELECT versao FROM schema_migrations ORDER BY versao LIMIT 1")->fetchColumn()==='0.1','initial version 0.1 recorded before UI upgrade');
-check((int)$db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn()===8,'all ordered migrations recorded');
+check((int)$db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn()===9,'all ordered migrations recorded');
 $db->exec("INSERT INTO params VALUES('EXEMPLO','preservar')");
 Schema::migrate($db);
 check($db->query("SELECT valor FROM params WHERE chave='EXEMPLO'")->fetchColumn()==='preservar','existing parameter preserved');
-check((int)$db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn()===8,'history is not duplicated');
-foreach (['device_endpoints','device_preferences','device_contacts','session_relay_frames','session_relay_inputs','session_ports','clipboard_chunks','clipboard_transfers'] as $table) {
+check((int)$db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn()===9,'history is not duplicated');
+foreach (['device_endpoints','device_preferences','device_contacts','session_relay_frames','session_relay_inputs','session_ports','clipboard_chunks','clipboard_transfers','file_chunks','file_transfers','file_commands'] as $table) {
     $db->exec('DROP TABLE '.$table); Schema::migrate($db);
     check((int)$db->query('SELECT COUNT(*) FROM '.$table)->fetchColumn()===0,'missing '.$table.' recreated');
 }

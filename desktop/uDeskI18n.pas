@@ -145,11 +145,11 @@ begin
   case CurrentLanguage of
     dlEnglish:
       case Id of
-        strAppTitle: Result := 'MaurinDesk v0.6.6 — Assisted Remote Connection';
+        strAppTitle: Result := 'MaurinDesk v0.6.7 — Assisted Remote Connection';
         strAppSubtitle: Result := 'Assisted and secure remote access.';
         strTabNewConnection: Result := 'New Connection';
         strBtnSettings: Result := '⚙ Settings';
-        strVersionBadge: Result := '● Software v0.6.6 (Build 2026-11-14)';
+        strVersionBadge: Result := '● Software v0.6.7 (Build 2026-11-14)';
         strBannerTagline: Result := 'Assisted and secure remote desktop.';
         strBannerBuild: Result := 'Build 2026-11-14 | Stream Ready';
 
@@ -222,11 +222,11 @@ begin
 
     dlSpanish:
       case Id of
-        strAppTitle: Result := 'MaurinDesk v0.6.6 — Conexión Remota Asistida';
+        strAppTitle: Result := 'MaurinDesk v0.6.7 — Conexión Remota Asistida';
         strAppSubtitle: Result := 'Acceso remoto asistido y seguro.';
         strTabNewConnection: Result := 'Nueva Conexión';
         strBtnSettings: Result := '⚙ Configuración';
-        strVersionBadge: Result := '● Software v0.6.6 (Build 2026-11-14)';
+        strVersionBadge: Result := '● Software v0.6.7 (Build 2026-11-14)';
         strBannerTagline: Result := 'Acceso remoto asistido y seguro.';
         strBannerBuild: Result := 'Build 2026-11-14 | Stream Activo';
 
@@ -299,11 +299,11 @@ begin
 
   else // dlPortuguese (Default)
     case Id of
-      strAppTitle: Result := 'MaurinDesk v0.6.6 — Conexão Remota Assistida';
+      strAppTitle: Result := 'MaurinDesk v0.6.7 — Conexão Remota Assistida';
       strAppSubtitle: Result := 'Acesso remoto assistido e seguro.';
       strTabNewConnection: Result := 'Nova Conexão';
       strBtnSettings: Result := '⚙ Config Servidor';
-      strVersionBadge: Result := '● Software v0.6.6 (Build 2026-11-14)';
+      strVersionBadge: Result := '● Software v0.6.7 (Build 2026-11-14)';
       strBannerTagline: Result := 'Acesso remoto assistido e seguro.';
       strBannerBuild: Result := 'Build 2026-11-14 | Stream Ativo';
 

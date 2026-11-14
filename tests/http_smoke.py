@@ -61,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix="maurindesk-http-") as temp:
             assert headers.get("Cache-Control") == "no-store"
             print("OK", name, status)
         status, body, _ = request(base.rsplit("/v1", 1)[0] + "/")
-        assert status == 200 and body["data"]["version"] == "0.8"
+        assert status == 200 and body["data"]["version"] == "0.9"
         print("OK server root health and initial version")
         status, body, _ = request("/devices", json.dumps({
             "registration_id": "12345678-1234-4234-8234-123456789abc",

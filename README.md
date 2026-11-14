@@ -1,10 +1,10 @@
 # MaurinDesk
 
-**Versão 0.6.6:** ícone próprio na área do relógio, correção de desconexão por Enter/espaço e comandos para enviar arquivos/pastas e abrir os recebidos. Mantém layout moderno, clipboard bidirecional, histórico, `fsetmain`, instalação e atualização pelo GitHub. Executável: [bin/MaurinDesk.exe](bin/MaurinDesk.exe). Veja [como usar e atualizar](docs/14-recursos-desktop.md).
+**Versão 0.6.7:** gerenciador de arquivos com painéis local e remoto, escolha do destino final, envio e recebimento de arquivos e pastas, fila de progresso e confirmação de gravação. Executável: [bin/MaurinDesk.exe](bin/MaurinDesk.exe). Requer os dois clientes em 0.6.7 e a API 0.9. Veja [como usar e atualizar](docs/14-recursos-desktop.md).
 
 Acesso remoto assistido, inspirado no fluxo de uso do AnyDesk, com cliente desktop Lazarus/Free Pascal nativo e servidor PHP exclusivamente de APIs e sinalização/relay.
 
-**Estado atual (v0.6.6):** transmissão de tela e controle autenticado por HTTPS Relay/P2P, clipboard e envio de arquivos/pastas após consentimento, histórico com apelidos e atualização verificada por SHA-256. O nome distribuído é sempre `MaurinDesk.exe`.
+**Estado atual (v0.6.7):** transmissão de tela e controle autenticado por HTTPS Relay/P2P, clipboard e envio de arquivos/pastas após consentimento, histórico com apelidos e atualização verificada por SHA-256. O nome distribuído é sempre `MaurinDesk.exe`.
 
 ## Funcionamento
 

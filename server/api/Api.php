@@ -7,6 +7,7 @@ use RuntimeException;
 use Throwable;
 require_once __DIR__.'/DesktopData.php';
 require_once __DIR__.'/ClipboardData.php';
+require_once __DIR__.'/FileExchange.php';
 
 final class ApiError extends RuntimeException {
     public int $status;
@@ -70,8 +71,8 @@ final class Api {
         return $s;
     }
     private function permissions(mixed $value): array {
-        $allowed=['screen.view','input.mouse','input.keyboard','clipboard.sync'];
-        if (!is_array($value) || !array_is_list($value) || count($value)>4 ||
+        $allowed=['screen.view','input.mouse','input.keyboard','clipboard.sync','files.transfer'];
+        if (!is_array($value) || !array_is_list($value) || count($value)>5 ||
             !in_array('screen.view',$value,true) || count(array_unique($value,SORT_REGULAR))!==count($value))
             $this->fail(400,'VALIDATION_ERROR','Permissões inválidas.');
         foreach($value as $p) if (!is_string($p) || !in_array($p,$allowed,true))
@@ -138,6 +139,10 @@ final class Api {
         $this->run('DELETE FROM idempotency WHERE expires_at<=?',[$this->now]);
         $this->run('DELETE FROM rate_limits WHERE expires_at<=?',[$this->now]);
         $this->run("DELETE FROM clipboard_transfers WHERE updated_at<=? OR session_id IN
+            (SELECT id FROM sessions WHERE state IN ('closed','expired','cancelled','rejected'))",[$this->now-3600]);
+        $this->run("DELETE FROM file_transfers WHERE updated_at<=? OR session_id IN
+            (SELECT id FROM sessions WHERE state IN ('closed','expired','cancelled','rejected'))",[$this->now-3600]);
+        $this->run("DELETE FROM file_commands WHERE created_at<=? OR session_id IN
             (SELECT id FROM sessions WHERE state IN ('closed','expired','cancelled','rejected'))",[$this->now-3600]);
     }
     private function authenticate(array $headers): array {
@@ -519,6 +524,9 @@ final class Api {
                     [$device['id']])->fetchAll();
                 $data=['items'=>array_map(fn($s)=>$this->view($s),$rows),'server_time'=>gmdate('c',$this->now)];
                 foreach ($rows as $incoming) $this->auditOnce('session.delivered',$device['id'],$incoming['id']);
+            } elseif (preg_match('#^/sessions/([a-f0-9-]{36})/files/(commands|transfers)(?:/([a-f0-9-]{36})(?:/(claim|[0-9]{1,4}))?)?$#D',$path,$m)) {
+                $s=$this->session($m[1],$device['id']);
+                $data=(new FileExchange($this->db,$this->now))->handle($method,$s,$device['id'],$m[2],$m[3]??null,$m[4]??null,$body);
             } elseif (preg_match('#^/sessions/([a-f0-9-]{36})/clipboard(?:/([a-f0-9-]{36})(?:/([0-9]{1,4}))?)?$#D',$path,$m)) {
                 $s=$this->session($m[1],$device['id']);
                 $data=(new ClipboardData($this->db,$this->now))->handle($method,$s,$device['id'],$body,$m[2]??null,isset($m[3])?(int)$m[3]:null);
@@ -542,6 +550,8 @@ final class Api {
                         $this->run("UPDATE sessions SET state='closed',ended_at=?,reason=? WHERE id=?",[$this->now,$reason,$s['id']]);
                         $this->audit('session.closed',$device['id'],$s['id']);
                         $this->run('DELETE FROM clipboard_transfers WHERE session_id=?',[$s['id']]);
+                        $this->run('DELETE FROM file_transfers WHERE session_id=?',[$s['id']]);
+                        $this->run('DELETE FROM file_commands WHERE session_id=?',[$s['id']]);
                     }
                     $data=$this->view($this->session($s['id'],$device['id']));
                 } elseif ($method==='POST' && in_array($action,['decision','cancel'],true)) {
