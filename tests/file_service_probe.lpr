@@ -44,7 +44,7 @@ begin
   B:=TDeskFiles.Create(Config.Get('url',''),Config.Get('host_token',''),Config.Get('session',''),True,Config.Get('cache',''));
   Observer:=TObserver.Create; Paths:=TStringList.Create;
   try
-    Observer.Controller:=A; A.OnEvent:=@Observer.Event; B.OnEvent:=@Observer.Event;
+    Observer.Controller:=A; A.OnEvent:=@Observer.Event; B.OnEvent:=@Observer.Event; B.IsRequester:=False;
 
     A.Start; B.Start;
     A.Browse(True,Config.Get('source',''),''); A.Browse(False,Config.Get('destination',''),'');

@@ -21,7 +21,7 @@ try {
         download_url = 'https://raw.githubusercontent.com/marcelomaurin/MaurinDesk/fila/bin/MaurinDesk.exe'
         bytes = $binary.Length; sha256 = $hash; build_date = $manifest.build_date
         minimum_api_schema = '0.9'
-        release_notes = 'Gerenciador de arquivos local/remoto com envio e recebimento de arquivos e pastas para o destino escolhido, progresso e confirmacao de gravacao.'
+        release_notes = 'Transferir arquivos acessivel na barra responsiva do visualizador e na sessao ativa, com envio e recebimento para a pasta escolhida.'
     }
     $update | ConvertTo-Json | Set-Content -LiteralPath 'update.json' -Encoding utf8
     Write-Output "Gerado bin/MaurinDesk.exe v$version e metadados de atualização."

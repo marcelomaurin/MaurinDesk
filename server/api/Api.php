@@ -425,19 +425,19 @@ final class Api {
                 return [200,['data'=>['status'=>'ok','version'=>$version,'stage'=>'p2p-discovery'],'request_id'=>$requestId]];
             }
             if ($method==='POST' && $path==='/diagnostics/logs') {
+                // Somente dispositivos registrados, com credencial valida, gravam diagnosticos.
+                $logDevice = $this->authenticate($headers);
+                $this->limit('diaglog:'.$logDevice['id'],20,3600);
                 $logId = self::uuid();
-                $devId = null;
-                $auth = $headers['authorization'] ?? '';
-                if (str_starts_with($auth, 'Bearer ')) {
-                    $token = substr($auth, 7);
-                    $d = $this->run('SELECT id FROM devices WHERE token_hash=?', [hash('sha256', $token)])->fetch();
-                    if ($d) $devId = $d['id'];
-                }
+                $devId = $logDevice['id'];
                 $sessId = isset($body['session_id']) && is_string($body['session_id']) && strlen($body['session_id']) <= 36 ? $body['session_id'] : null;
                 $level = isset($body['level']) && in_array($body['level'], ['error','warn','info'], true) ? $body['level'] : 'error';
                 $category = isset($body['category']) && is_string($body['category']) ? substr($body['category'], 0, 50) : 'client';
                 $message = isset($body['message']) && is_string($body['message']) ? substr($body['message'], 0, 255) : 'Client Error Log';
-                $logContent = isset($body['log_content']) && is_string($body['log_content']) ? $body['log_content'] : '';
+                $logContent = isset($body['log_content']) && is_string($body['log_content']) ? substr($body['log_content'], 0, 262144) : '';
+                // A sessao so e associada quando o dispositivo participa dela.
+                if ($sessId !== null && !$this->run('SELECT id FROM sessions WHERE id=? AND (host_id=? OR requester_id=?)',
+                    [$sessId, $devId, $devId])->fetch()) $sessId = null;
                 $appVersion = isset($body['app_version']) && is_string($body['app_version']) ? substr($body['app_version'], 0, 20) : '0.4.0';
 
                 try {

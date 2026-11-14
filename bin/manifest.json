@@ -1,9 +1,9 @@
 {
-  "version": "0.6.7",
+  "version": "0.6.8",
   "platform": "windows-x64",
   "filename": "MaurinDesk.exe",
-  "bytes": 29222213,
-  "sha256": "fbfeaae7dfbc3b3f20e21bde5c602947be500a21b191aec0b0836724ff03de13",
+  "bytes": 29223911,
+  "sha256": "aeb4a35bfe359645845b3c5421157b2df94c94e19a714f9044bdc7096db3e4fc",
   "lazarus": "4.6",
   "fpc": "3.2.2",
   "build_date": "2026-11-14",

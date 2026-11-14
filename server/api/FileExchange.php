@@ -26,6 +26,17 @@ final class FileExchange {
             !in_array('files.transfer',json_decode($s['granted'],true)?:[],true))
             $this->fail(403,'Acesso a arquivos nao autorizado nesta sessao.');
     }
+    /** True when the requester asked the host for exactly this package and destination. */
+    private function requested(array $s,string $requestId,string $destination,bool $overwrite): bool {
+        $rows=$this->run("SELECT payload FROM file_commands WHERE session_id=? AND sender_id=? AND action='send'",
+            [$s['id'],$s['requester_id']])->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $row) {
+            $p=json_decode($row['payload'],true);
+            if (is_array($p) && ($p['request_id']??null)===$requestId && ($p['destination']??null)===$destination &&
+                (bool)($p['overwrite']??false)===$overwrite) return true;
+        }
+        return false;
+    }
     public function handle(string $method,array $s,string $actor,string $channel,?string $id,?string $part,array $body): array {
         $this->authorize($s);
         $peer=$s['host_id']===$actor?$s['requester_id']:$s['host_id'];
@@ -35,6 +46,9 @@ final class FileExchange {
                 if (version_compare($version,'0.6.7','<')) $this->fail(409,'Atualize os dois computadores para a versao 0.6.7 ou posterior.');
                 $action=$body['action']??'';
                 if (!in_array($action,['list','send','mkdir','job_error'],true)) $this->fail(400,'Acao de arquivos invalida.');
+                // Somente quem iniciou a comunicacao com a chave navega, cria pastas ou pede arquivos do outro computador.
+                if ($action!=='job_error' && $actor!==$s['requester_id'])
+                    $this->fail(403,'Somente quem iniciou a conexao com a chave pode acessar os arquivos do outro computador.');
                 if (strlen(json_encode($body,JSON_THROW_ON_ERROR))>131072) $this->fail(400,'Solicitacao muito grande.');
                 if ($action==='list') {
                     $this->path($body['path']??null,true);
@@ -96,6 +110,9 @@ final class FileExchange {
                     $this->fail(409,'Transferencia repetida com dados diferentes.');
                 return ['id'=>$existing['id'],'chunk_count'=>(int)$existing['chunk_count'],'state'=>$existing['state']];
             }
+            // O computador atendido so envia arquivos pedidos por quem iniciou a conexao, para o destino pedido.
+            if ($actor!==$s['requester_id'] && !$this->requested($s,$requestId,$destination,$overwrite))
+                $this->fail(403,'Envio de arquivos nao solicitado por quem iniciou a conexao.');
             $used=(int)$this->run("SELECT COALESCE(SUM(total_bytes),0) FROM file_transfers WHERE sender_id=? AND state IN ('uploading','ready','receiving')",[$actor])->fetchColumn();
             if ($used+$size>ClipboardData::MAX_BYTES) $this->fail(429,'Aguarde a transferencia anterior terminar.');
             $id=Api::uuid(); $count=(int)ceil($size/ClipboardData::CHUNK_BYTES);

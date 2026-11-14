@@ -62,7 +62,7 @@ begin
     Check(not VersionIsNewer('0.6.4','0.6.6'),'older version does not update');
     Check(not VersionIsNewer('malicious','0.6.6'),'invalid version does not update');
     Check(not VersionIsNewer('0."7".0','0.6.6'),'quoted version does not update');
-    Check(ExecutableVersion(ExpandFileName(Root+'../../bin/MaurinDesk.exe'))='0.6.7.0','executable version resource matches release');
+    Check(ExecutableVersion(ExpandFileName(Root+'../../bin/MaurinDesk.exe'))='0.6.8.0','executable version resource matches release');
     IconModule:=LoadLibraryExW(PWideChar(UTF8Decode(ExpandFileName(Root+'../../bin/MaurinDesk.exe'))),0,LOAD_LIBRARY_AS_DATAFILE);
     Check(IconModule<>0,'executable resources available');
     try

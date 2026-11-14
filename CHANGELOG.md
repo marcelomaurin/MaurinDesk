@@ -1,5 +1,14 @@
 # Histórico
 
+## 0.6.8 — 14/11/2026
+
+- Botão **Transferir arquivos** na barra do visualizador, com layout que acompanha a largura da janela, e no painel da sessão ativa da tela principal.
+- O acesso ao gerenciador deixa de depender do cartão de descoberta, que pode ser ocultado conforme o tamanho da janela.
+- Mensagem específica quando uma sessão foi aceita sem a permissão de arquivos, sem pedir para conectar novamente quando já está conectada.
+- Verificado o acesso visível e clicável em larguras de 640, 800, 1024 e 1280 pixels, preservando o tratamento do teclado remoto.
+- Segurança: somente quem iniciou a conexão com a chave lista, cria pastas e pede arquivos do outro computador. O computador atendido apenas atende a esses pedidos e só envia arquivos solicitados, para o destino solicitado; a regra vale na API e no aplicativo.
+- Segurança: o envio de diagnóstico exige credencial válida de dispositivo registrado, com limite de 20 envios por hora e 256 KiB por relatório; a sessão só é associada quando o dispositivo participa dela.
+
 ## 0.6.7 — 14/11/2026
 
 - Gerenciador de arquivos em dois painéis (local/remoto), navegação por unidades e pastas, filtro, paginação e criação de pastas.

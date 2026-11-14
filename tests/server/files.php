@@ -22,9 +22,21 @@ foreach (['../outside','\\\\server\\share','C:relative'] as $path) { [$st]=callA
 callApi('POST','/devices/heartbeat',['app_version'=>'0.6.6'],$host);
 [$st]=callApi('POST',$route.'commands',['action'=>'list','path'=>'@home'],$client); check($st===409,'old peer gets explicit upgrade error');
 callApi('POST','/devices/heartbeat',['app_version'=>'0.6.7'],$host);
+// Only the side that started the connection with the key commands the other computer's files.
+foreach ([['action'=>'list','path'=>'C:\\Users','offset'=>0],['action'=>'mkdir','path'=>'C:\\Users','name'=>'x'],
+ ['action'=>'send','paths'=>['C:\\Users\\a.txt'],'destination'=>'D:\\Destino final','request_id'=>Api::uuid(),'overwrite'=>false]] as $forbidden) {
+ [$st]=callApi('POST',$route.'commands',$forbidden,$host); check($st===403,'host cannot command requester files: '.$forbidden['action']); }
+[$st,$r]=callApi('GET',$route.'commands',[],$client); check($st===200 && count($r['data']['items'])===0,'no host command reaches the requester');
+$raw=random_bytes(64); [$st]=callApi('POST',$route.'transfers',['request_id'=>Api::uuid(),'destination'=>'D:\\Destino final','overwrite'=>false,'total_bytes'=>64,'checksum'=>sha1($raw)],$host);
+check($st===403,'host cannot push unsolicited files to requester');
 foreach ([[$client,$host],[$host,$client]] as [$sender,$receiver]) {
  $raw=random_bytes(ClipboardData::CHUNK_BYTES+35); $job=Api::uuid();
  $body=['request_id'=>$job,'destination'=>'D:\\Destino final','overwrite'=>false,'total_bytes'=>strlen($raw),'checksum'=>sha1($raw)];
+ if ($sender===$host) {
+  $wrong=$body; $wrong['destination']='D:\\Outra';
+  [$st]=callApi('POST',$route.'commands',['action'=>'send','paths'=>['C:\\Users\\a.txt'],'destination'=>$body['destination'],'request_id'=>$job,'overwrite'=>false],$client); check($st===200,'requester asks host for files');
+  [$st]=callApi('POST',$route.'transfers',$wrong,$host); check($st===403,'host cannot change the requested destination');
+ }
  [$st,$r]=callApi('POST',$route.'transfers',$body,$sender); check($st===200,'begin explicit destination transfer'); $id=$r['data']['id'];
  [$st,$r]=callApi('POST',$route.'transfers',$body,$sender); check($r['data']['id']===$id,'same job reuses transfer');
  $changed=$body; $changed['destination']='D:\\Other'; [$st]=callApi('POST',$route.'transfers',$changed,$sender); check($st===409,'same job cannot change destination');
@@ -51,4 +63,11 @@ check((int)$db->query('SELECT COUNT(*) FROM file_commands')->fetchColumn()===0,'
 [$st,$r]=callApi('POST','/sessions',['target_key'=>$host['public_key'],'requested_permissions'=>['screen.view','files.transfer']],$client); $view=$r['data']['id'];
 callApi('POST','/sessions/'.$view.'/decision',['decision'=>'accept','granted_permissions'=>['screen.view']],$host);
 [$st]=callApi('GET','/sessions/'.$view.'/files/commands',[],$client); check($st===403,'read-only view cannot access file manager');
+// Diagnostics are accepted only from registered devices holding a valid credential.
+[$st]=callApi('POST','/diagnostics/logs',['message'=>'x','log_content'=>'y']); check($st===401,'anonymous diagnostics rejected');
+[$st,$r]=callApi('POST','/diagnostics/logs',['message'=>'x','log_content'=>str_repeat('a',300000),'session_id'=>$sid],$client); check($st===201,'registered device stores diagnostics');
+$row=$db->query("SELECT device_id,session_id,LENGTH(log_content) AS n FROM device_logs WHERE id='".$r['data']['id']."'")->fetch(PDO::FETCH_ASSOC);
+check($row['device_id']===$client['device_id'] && $row['session_id']===$sid && (int)$row['n']===262144,'diagnostics bound to device, own session and size limit');
+[$st,$r]=callApi('POST','/diagnostics/logs',['message'=>'x','session_id'=>$sid],$other); $row=$db->query("SELECT session_id FROM device_logs WHERE id='".$r['data']['id']."'")->fetch(PDO::FETCH_ASSOC);
+check($st===201 && $row['session_id']===null,'diagnostics cannot be attached to another session');
 echo "$count total file exchange and API assertions passed\n";

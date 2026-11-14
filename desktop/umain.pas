@@ -155,6 +155,7 @@ type
     FActiveSessionPanel: TPanel;
     FActiveSessionText: TLabel;
     FBtnStop: TDeskButton;
+    FBtnSessionFiles: TDeskButton;
 
     // Log Console Panel (Bottom)
     FLogPanel: TPanel;
@@ -320,7 +321,7 @@ begin
                 Identity.Get('registration_secret', ''),
                 GetEnvironmentVariable('COMPUTERNAME'),
                 'windows',
-                '0.6.7'
+                '0.6.8'
               );
             end;
             try
@@ -446,7 +447,7 @@ begin
   FNavConnect.Selected := True;
   FBannerPanel := Panel(FSidebar); FBannerPanel.Align := alBottom; FBannerPanel.Height := 100;
   FBannerTitleLabel := LabelAt(FBannerPanel,'MaurinDesk',20,12,160,22,11,True);
-  FBannerBuildLabel := LabelAt(FBannerPanel,'v0.6.7',20,36,160,20,9);
+  FBannerBuildLabel := LabelAt(FBannerPanel,'v0.6.8',20,36,160,20,9);
   FBannerWebLabel := LabelAt(FBannerPanel,'maurinsoft.com.br',20,61,160,20,9);
   FBannerWebLabel.Font.Color := RGBToColor(126,135,151);
   FContentArea := Panel(Self); FContentArea.Align := alClient; FContentArea.Color := RGBToColor(248,249,252);
@@ -485,7 +486,7 @@ begin
   Item:=TMenuItem.Create(FTransferMenu); Item.Caption:='Enviar arquivos...'; Item.OnClick:=@ChooseFiles; FTransferMenu.Items.Add(Item);
   Item:=TMenuItem.Create(FTransferMenu); Item.Caption:='Enviar pasta...'; Item.OnClick:=@ChooseFolder; FTransferMenu.Items.Add(Item);
   Item:=TMenuItem.Create(FTransferMenu); Item.Caption:='Abrir arquivos recebidos'; Item.OnClick:=@OpenReceivedFiles; FTransferMenu.Items.Add(Item);
-  FBtnTransfer:=ButtonAt(FDiscoveryCard,'Arquivos e pastas',@FileTransferMenuClick);
+  FBtnTransfer:=ButtonAt(FDiscoveryCard,'Transferir arquivos',@FileTransferMenuClick);
   FDiscServerLabel := LabelAt(FDiscoveryCard,'',0,0,0,0,8); FDiscServerLabel.Visible := False;
   FLogPanel := Panel(FContentArea,True);
   FLogHeader := Panel(FLogPanel); FLogHeader.Color := clWhite; FLogHeader.Cursor := crHandPoint; FLogHeader.OnClick := @ToggleLog;
@@ -502,6 +503,8 @@ begin
   FActiveSessionPanel := Panel(FContentArea,True); FActiveSessionPanel.Color := RGBToColor(238,252,244); FActiveSessionPanel.Visible := False;
   FActiveSessionText := LabelAt(FActiveSessionPanel,'Sessão ativa',16,16,700,24,10,True);
   FBtnStop := ButtonAt(FActiveSessionPanel,'Encerrar sessão',@StopClick);
+  FBtnSessionFiles:=ButtonAt(FActiveSessionPanel,'Transferir arquivos',@FileTransferMenuClick);
+  FBtnSessionFiles.Name:='ActiveSessionFilesButton'; FBtnSessionFiles.Primary:=True; FBtnSessionFiles.Enabled:=False;
   FIncomingPanel := Panel(FContentArea,True); FIncomingPanel.Color := RGBToColor(255,248,231); FIncomingPanel.Visible := False;
   FIncomingText := LabelAt(FIncomingPanel,'Solicitação de conexão',16,10,780,42,9,True); FIncomingText.WordWrap := True;
   FBtnAcceptControl := ButtonAt(FIncomingPanel,'Controle + arquivos',@AcceptControlClick);
@@ -556,7 +559,8 @@ begin
   FBtnTransfer.SetBounds(RowW-194,17,176,36);
   BottomY := BottomY-82;
   if FActiveSessionPanel.Visible then begin
-    FActiveSessionPanel.SetBounds(28,BottomY-52,RowW,52); FActiveSessionText.Width := RowW-206;
+    FActiveSessionPanel.SetBounds(28,BottomY-52,RowW,52); FActiveSessionText.Width := RowW-390;
+    FBtnSessionFiles.SetBounds(RowW-374,9,178,34);
     FBtnStop.SetBounds(RowW-184,9,168,34); BottomY := BottomY-64;
   end;
   if FIncomingPanel.Visible then begin
@@ -612,7 +616,13 @@ begin
 end;
 procedure TMainForm.FileTransferMenuClick(Sender: TObject);
 begin
-  if (FFiles=nil) or FFiles.Finished then begin ShowMessage('Conecte com permissao de arquivos. Atualize os dois computadores e a API.'); Exit; end;
+  if FStoppingSession or (FSessionId='') then begin ShowMessage('Inicie uma conexao para transferir arquivos.'); Exit; end;
+  if FFiles=nil then begin
+    ShowMessage('A sessao atual foi aceita sem acesso aos arquivos.'+#13#10+
+      'Inicie uma nova conexao e aceite "Controle + arquivos" no computador remoto.'+#13#10+
+      'Use a versao 0.6.8 nos dois computadores e publique a API 0.9 na hospedagem.'); Exit;
+  end;
+  if FFiles.Finished then begin ShowMessage('O servico de arquivos foi interrompido. Consulte o registro de conexao e reconecte.'); Exit; end;
   if FFileManager=nil then begin FFileManager:=TDeskFileManager.CreateManager(Self,FFiles); end;
   FFileManager.Show; FFileManager.BringToFront;
 end;
@@ -694,7 +704,7 @@ var
   NeedsElev: Boolean;
 begin
   inherited CreateNew(AOwner);
-  Caption := 'MaurinDesk v0.6.7 — Conexão Remota Assistida';
+  Caption := 'MaurinDesk v0.6.8 — Conexão Remota Assistida';
   SetBounds(100, 60, 1220, 840);
   Constraints.MinWidth := 1000;
   Constraints.MinHeight := 700;
@@ -752,7 +762,7 @@ begin
   ApplyLanguage;
 
   // Initial Log messages
-  LogMsg('MaurinDesk v0.6.7 (Build 2026-11-14) inicializado.');
+  LogMsg('MaurinDesk v0.6.8 (Build 2026-11-14) inicializado.');
   LogMsg('Servidor configurado: ' + FURL);
   LogMsg('Perfil local: ' + FProfile);
 
@@ -1123,6 +1133,7 @@ begin
         State := J.Get('state', '');
         FActiveSessionText.Caption := 'Sessão atual: ' + State + ' (Chave: ' + FTarget.Text + ')';
         FActiveSessionPanel.Visible := (State = 'accepted') or (State = 'active') or (State = 'pending');
+        FBtnSessionFiles.Enabled:=(State='accepted') or (State='active') or (State='connecting');
         LogMsg('[STATUS SESSÃO] Estado atual: ' + State);
         if (State = 'accepted') or (State = 'active') or (State = 'connecting') then begin StartClipboard(J); StartFiles(J); end;
         if (State = 'accepted') and FIsController then RememberRemote;
@@ -1209,6 +1220,7 @@ begin
 
     opConnect: begin
       FSessionId := W.Data.Get('id', '');
+      FBtnSessionFiles.Enabled:=False;
       FActiveSessionText.Caption := 'Sessão: ' + W.Data.Get('state', '') + ' (Aguardando aceite)';
       FActiveSessionPanel.Visible := True;
       FIncomingPanel.Visible := False;
@@ -1219,6 +1231,7 @@ begin
     opAcceptView, opAcceptControl: begin
       FStoppingSession:=False;
       FSessionId := W.Data.Get('id', '');
+      FBtnSessionFiles.Enabled:=True;
       FActiveSessionText.Caption := 'Sessão: ' + W.Data.Get('state', '') + ' (Conectado)';
       FActiveSessionPanel.Visible := True;
       FIncomingPanel.Visible := False;
@@ -1388,7 +1401,8 @@ begin
   if (Session=nil) or (FFiles<>nil) or FStoppingSession then Exit;
   P:=Session.Arrays['granted_permissions']; if P=nil then Exit;
   for I:=0 to P.Count-1 do if P.Strings[I]='files.transfer' then begin
-    FFiles:=TDeskFiles.Create(FURL,FToken,FSessionId,FAllowLocal); FFiles.OnEvent:=@FileEvent; FFiles.Start; Exit;
+    FFiles:=TDeskFiles.Create(FURL,FToken,FSessionId,FAllowLocal); FFiles.IsRequester:=FIsController; FFiles.OnEvent:=@FileEvent; FFiles.Start;
+    LogMsg('[ARQUIVOS] Envio e recebimento autorizados. Use Transferir arquivos na sessao ativa.'); Exit;
   end;
 end;
 procedure TMainForm.FileEvent(Sender: TObject; Data: TJSONObject);

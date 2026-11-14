@@ -49,6 +49,7 @@ type
     procedure ViewerShown(Sender: TObject);
     procedure ViewerDeactivated(Sender: TObject);
     procedure ReleaseRemoteKeys;
+    procedure LayoutToolbar(Sender: TObject);
     procedure FilesMenuClick(Sender: TObject);
     procedure SendFilesClick(Sender: TObject);
     procedure SendFolderClick(Sender: TObject);
@@ -95,6 +96,7 @@ begin
   Caption := _T(strViewerActiveConnection) + ARemoteKey;
   Width := 1024;
   Height := 720;
+  Constraints.MinWidth:=640; Constraints.MinHeight:=400;
   Position := poScreenCenter;
   Color := $1E1E2E;
   KeyPreview := True;
@@ -157,10 +159,12 @@ begin
   Item:=TMenuItem.Create(FFilesMenu); Item.Caption:='Enviar pasta...'; Item.OnClick:=@SendFolderClick; FFilesMenu.Items.Add(Item);
   Item:=TMenuItem.Create(FFilesMenu); Item.Caption:='Abrir arquivos recebidos'; Item.OnClick:=@OpenReceivedClick; FFilesMenu.Items.Add(Item);
   FBtnFiles:=TSpeedButton.Create(Self); FBtnFiles.Parent:=FTopBar; FBtnFiles.SetBounds(790,7,150,28);
-  FBtnFiles.Caption:='Arquivos e pastas'; FBtnFiles.OnClick:=@FilesMenuClick;
+  FBtnFiles.Name:='TransferFilesButton'; FBtnFiles.Caption:='Transferir arquivos'; FBtnFiles.Font.Style:=[fsBold]; FBtnFiles.OnClick:=@FilesMenuClick;
   FTransferStatus:=TLabel.Create(Self); FTransferStatus.Parent:=Self; FTransferStatus.Align:=alBottom;
   FTransferStatus.AutoSize:=False; FTransferStatus.Height:=28; FTransferStatus.Font.Color:=clWhite;
-  FTransferStatus.Caption:='Arquivos: copie com Ctrl+C ou use "Arquivos e pastas".';
+  FTransferStatus.Caption:='Use Transferir arquivos para enviar ou receber arquivos e pastas.';
+
+  FTopBar.OnResize:=@LayoutToolbar; LayoutToolbar(Self);
 
   // Área central de renderização
   FInputSurface:=TPanel.Create(Self); FInputSurface.Parent:=Self; FInputSurface.Align:=alClient;
@@ -480,6 +484,21 @@ begin
 end;
 procedure TfRemoteViewer.SetTransferStatus(const Msg: string);
 begin FTransferStatus.Caption:=Msg; end;
+procedure TfRemoteViewer.LayoutToolbar(Sender: TObject);
+var W: Integer;
+begin
+  if FBtnFiles=nil then Exit;
+  FTopBar.Height:=82;
+  FStatusLabel.AutoSize:=False; FStatusLabel.SetBounds(12,10,FTopBar.ClientWidth div 2-20,24);
+  FFPSLabel.AutoSize:=False; FFPSLabel.SetBounds(FTopBar.ClientWidth div 2,10,FTopBar.ClientWidth div 2-12,24);
+  FFPSLabel.Alignment:=taRightJustify;
+  W:=(FTopBar.ClientWidth-40) div 4;
+  FBtnFiles.SetBounds(8,40,W,32);
+  FBtnFit.SetBounds(16+W,40,W,32);
+  FBtnFullScreen.SetBounds(24+2*W,40,W,32);
+  FBtnDisconnect.SetBounds(32+3*W,40,W,32);
+end;
+
 procedure TfRemoteViewer.FilesMenuClick(Sender: TObject);
 var P: TPoint;
 begin ReleaseRemoteKeys; if Assigned(FOnOpenFileManager) then begin FOnOpenFileManager(Self); Exit; end; P:=FBtnFiles.ClientToScreen(Point(0,FBtnFiles.Height)); FFilesMenu.PopUp(P.X,P.Y); end;

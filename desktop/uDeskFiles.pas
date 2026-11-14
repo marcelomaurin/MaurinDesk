@@ -7,7 +7,7 @@ type
   TDeskFiles = class(TThread)
   private
     FURL,FToken,FSession,FCache,FOwner: string;
-    FAllowLocal,FInControl: Boolean;
+    FAllowLocal,FInControl,FIsRequester: Boolean;
     FLock: TRTLCriticalSection;
     FActions: TJSONArray;
     FPendingCommands,FWaiting,FDelivered,FCommandJobs: TStringList;
@@ -38,6 +38,9 @@ type
     function Send(Paths: TStrings; const Destination: string; Overwrite: Boolean): string;
     function Receive(Paths: TStrings; const Destination: string; Overwrite: Boolean): string;
     procedure MakeDirectory(Local: Boolean; const Parent,Name: string);
+    // True no computador que iniciou a conexão com a chave: só ele comanda os arquivos remotos.
+    // O computador atendido (False) apenas atende a esses pedidos. Defina antes de Start.
+    property IsRequester: Boolean read FIsRequester write FIsRequester;
     property OnEvent: TFileServiceEvent read FOnEvent write FOnEvent;
   end;
 implementation
@@ -59,7 +62,7 @@ constructor TDeskFiles.Create(const URL,Token,Session: string; AllowLocal: Boole
 begin
   inherited Create(True); FreeOnTerminate:=False;
   if not ValidFileId(Session) then raise Exception.Create('Sessao de arquivos invalida.');
-  FURL:=URL; FToken:=Token; FSession:=Session; FAllowLocal:=AllowLocal; FOwner:=AIRemoteUUID;
+  FURL:=URL; FToken:=Token; FSession:=Session; FAllowLocal:=AllowLocal; FOwner:=AIRemoteUUID; FIsRequester:=True;
   FCache:=IncludeTrailingPathDelimiter(SysUtils.GetEnvironmentVariable('LOCALAPPDATA'))+'MaurinDesk\Files\'+Session+'\';
   if CacheRoot<>'' then FCache:=IncludeTrailingPathDelimiter(CacheRoot)+Session+'\';
   InitCriticalSection(FLock); FActions:=TJSONArray.Create; FAcks:=TJSONArray.Create;
@@ -157,6 +160,7 @@ begin
       try
         Op:=Action.Get('op',''); Local:=Action.Get('local',False);
         try
+          if not FIsRequester and ((Op='download') or not Local) then raise Exception.Create('Somente quem iniciou a conexão com a chave acessa os arquivos do outro computador.');
           if Op='browse' then begin
             if Local then begin
               Data:=ReadDiskDirectory(Action.Get('path',''),Action.Get('filter',''),Action.Get('offset',0));
@@ -197,6 +201,7 @@ begin
       Command:=TJSONObject(Items[I]); Payload:=Command.Objects['payload']; Reply:=nil;
       try
         try
+          if FIsRequester and (Command.Get('action','')<>'job_error') then raise Exception.Create('Somente quem iniciou a conexão com a chave acessa os arquivos do outro computador.');
           if Command.Get('action','')='list' then begin
             Reply:=TJSONObject.Create(['ok',True]);
             Reply.Add('data',ReadDiskDirectory(Payload.Get('path',''),Payload.Get('filter',''),Payload.Get('offset',0)));
