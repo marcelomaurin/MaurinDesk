@@ -1,5 +1,15 @@
 # Histórico
 
+## 0.6.3 — 14/11/2026
+- Diagnóstico PHP da sessão: IP público observado, IP local anunciado, presença, versão dos participantes e estado dos quadros, disponível aos dois participantes após o aceite.
+- Eventos persistidos em `audit_events` e no log de erros do PHP: pedido, entrega pela API, aceite, consulta do visualizador, primeiro quadro recebido e primeira resposta com imagem.
+- Erros da API registrados com identificador da requisição e IP de origem, sem tokens ou conteúdo da tela.
+- Ponte HTTPS inicia independentemente do anúncio de porta P2P; visualizador respeita a permissão concedida.
+- Aviso de espera sem quadros, confirmação do primeiro JPEG mesmo com sequência diferente de 1 e tratamento de falhas de captura, compactação e envio de comandos.
+- Verificação de estrutura do banco antes de aceitar a versão como atual, restaurando tabelas ausentes da ponte.
+- Binário de correção em `bin/MaurinDesk-0.6.3.exe`, pois o executável padrão estava aberto durante a compilação.
+- Validação local: compilação Windows x64, testes de API/relay, migrações SQLite e fronteira HTTP. Conexão entre duas máquinas reais permanece pendente.
+
 ## 0.6.2 — 14/11/2026
 - Inicialização da visualização remota com prioridade no HTTPS Relay antes da tentativa P2P.
 - Aplicação rigorosa de autorizações de entrada (mouse e teclado) também no canal relay do servidor.

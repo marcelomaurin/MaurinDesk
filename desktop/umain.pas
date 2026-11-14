@@ -1,7 +1,7 @@
 unit umain;
 {$mode objfpc}{$H+}
 interface
-uses Classes, SysUtils, Forms, Controls, StdCtrls, ExtCtrls, Dialogs,
+uses Classes, SysUtils, DateUtils, Forms, Controls, StdCtrls, ExtCtrls, Dialogs,
   Graphics, Menus, Clipbrd, IniFiles, md5,
   fpjson, jsonparser, airemoteidentity, airemotesignaling,
   uDeskProtocol, uScreenCapture, uDeskStream, uRemoteViewer, uDeskRelay, uDeskI18n, uDeskFirewall;
@@ -261,7 +261,7 @@ begin
                 Identity.Get('registration_secret', ''),
                 GetEnvironmentVariable('COMPUTERNAME'),
                 'windows',
-                '0.6.2'
+                '0.6.3'
               );
             end;
             try
@@ -356,7 +356,7 @@ var
   NeedsElev: Boolean;
 begin
   inherited CreateNew(AOwner);
-  Caption := 'MaurinDesk v0.6.2 — Conexão Remota Assistida';
+  Caption := 'MaurinDesk v0.6.3 — Conexão Remota Assistida';
   SetBounds(100, 60, 980, 680);
   Constraints.MinWidth := 860;
   Constraints.MinHeight := 580;
@@ -524,7 +524,7 @@ begin
     Align := alRight;
     Alignment := taRightJustify;
     Width := 160;
-    Caption := 'MaurinDesk v0.6.2  ';
+    Caption := 'MaurinDesk v0.6.3  ';
     Font.Size := 9;
     Font.Style := [fsBold];
     Font.Color := RGBToColor(220, 38, 38);
@@ -559,7 +559,7 @@ begin
   with TLabel.Create(Self) do begin
     Parent := FSidebar;
     SetBounds(18, 36, 204, 16);
-    Caption := '● Software v0.6.2 (Build 2026-11-14)';
+    Caption := '● Software v0.6.3 (Build 2026-11-14)';
     Font.Size := 8;
     Font.Style := [fsBold];
     Font.Color := RGBToColor(14, 165, 233);
@@ -624,7 +624,7 @@ begin
   FBannerTitleLabel := TLabel.Create(Self);
   FBannerTitleLabel.Parent := FBannerPanel;
   FBannerTitleLabel.SetBounds(16, 10, 208, 20);
-  FBannerTitleLabel.Caption := 'MaurinDesk v0.6.2';
+  FBannerTitleLabel.Caption := 'MaurinDesk v0.6.3';
   FBannerTitleLabel.Font.Size := 11;
   FBannerTitleLabel.Font.Style := [fsBold];
   FBannerTitleLabel.Font.Color := clWhite;
@@ -915,7 +915,7 @@ begin
   ApplyLanguage;
 
   // Initial Log messages
-  LogMsg('MaurinDesk v0.6.2 (Build 2026-11-14) inicializado.');
+  LogMsg('MaurinDesk v0.6.3 (Build 2026-11-14) inicializado.');
   LogMsg('Servidor configurado: ' + FURL);
   LogMsg('Perfil local: ' + FProfile);
 
@@ -1218,10 +1218,10 @@ end;
 
 procedure TMainForm.Finished(W: TAPIWorker);
 var
-  A: TJSONArray;
-  J, PeerObj: TJSONObject;
-  State, ReqKey, ReqName, PeerLocalIP, PeerObservedIP: string;
-  PeerPort: Integer;
+  A, Grants, Events: TJSONArray;
+  J, CommObj, HostObj, RequesterObj, LastEvent: TJSONObject;
+  State, ReqKey, ReqName, CommStatus: string;
+  I: Integer;
 begin
   FBusy := False;
   if FClosing then Exit;
@@ -1279,16 +1279,39 @@ begin
         FActiveSessionText.Caption := 'Sessão atual: ' + State + ' (Chave: ' + FTarget.Text + ')';
         FActiveSessionPanel.Visible := (State = 'accepted') or (State = 'active') or (State = 'pending');
         LogMsg('[STATUS SESSÃO] Estado atual: ' + State);
+        CommObj := TJSONObject(J.Find('communication'));
+        if CommObj <> nil then begin
+          HostObj := CommObj.Objects['host'];
+          RequesterObj := CommObj.Objects['requester'];
+          CommStatus := CommObj.Get('status', 'desconhecido');
+          LogMsg('[PHP COMUNICACAO] ' + CommStatus + ' | quadro=' +
+            IntToStr(CommObj.Get('frame_id', 0)));
+          Events := CommObj.Arrays['events'];
+          if (Events <> nil) and (Events.Count > 0) then begin
+            LastEvent := TJSONObject(Events.Items[Events.Count - 1]);
+            LogMsg('[PHP ETAPA] ' + LastEvent.Get('event_type', '') +
+              ' | horario UTC=' + DateTimeToStr(UnixToDateTime(LastEvent.Get('occurred_at', Int64(0)))));
+          end;
+          if (HostObj <> nil) and (RequesterObj <> nil) then
+            LogMsg('[PHP REDE] Host IP=' + HostObj.Get('observed_ip', '') +
+              ' LAN=' + HostObj.Get('local_ip', '') + ' online=' + BoolToStr(HostObj.Get('online', False), True) +
+              ' | Controlador IP=' + RequesterObj.Get('observed_ip', '') +
+              ' LAN=' + RequesterObj.Get('local_ip', '') + ' online=' + BoolToStr(RequesterObj.Get('online', False), True));
+          if (CommStatus = 'waiting_host_frame') or (CommStatus = 'frame_stalled') then
+            if FRemoteViewer <> nil then
+              FRemoteViewer.SetErrorMessage('O PHP ainda nao recebeu imagem recente do host. Consulte o log do computador remoto.');
+        end;
 
         // Se a sessão foi aceita e este computador é o controlador, conecta ao stream e abre o Viewer!
         if (State = 'accepted') and FIsController and (FRemoteViewer = nil) then begin
-          PeerObj := TJSONObject(W.Data.Find('peer_endpoint'));
-          if PeerObj <> nil then begin
-            PeerLocalIP := PeerObj.Get('local_ip', '');
-            PeerObservedIP := PeerObj.Get('observed_ip', '');
-            PeerPort := PeerObj.Get('port', FStreamPort);
-
-            FRemoteViewer := TfRemoteViewer.CreateViewer(Self, FTarget.Text, True, nil);
+          begin
+            Grants := J.Arrays['granted_permissions'];
+            FSessionCanControl := False;
+            if Grants <> nil then
+              for I := 0 to Grants.Count - 1 do
+                if (Grants.Strings[I] = 'input.mouse') or (Grants.Strings[I] = 'input.keyboard') then
+                  FSessionCanControl := True;
+            FRemoteViewer := TfRemoteViewer.CreateViewer(Self, FTarget.Text, FSessionCanControl, nil);
             FRemoteViewer.OnCloseSession := @ViewerClosed;
             FRemoteViewer.Show;
             LogMsg('[VIEWER] Janela do visualizador remoto aberta!');
@@ -1298,11 +1321,6 @@ begin
             // somente depois que o primeiro quadro for confirmado.
             LogMsg('[PONTE] Modo relay-first: iniciando imagem via HTTPS, sem tentativa P2P.');
             StartRelayStreaming;
-          end else begin
-            if W.Data.Find('peer_endpoint_error') <> nil then
-              LogMsg('[STREAM] Aguardando endpoint do host: ' + W.Data.Get('peer_endpoint_error', ''))
-            else
-              LogMsg('[STREAM] Aguardando o host anunciar seu endpoint de rede...');
           end;
         end;
 
@@ -1334,7 +1352,7 @@ begin
       end;
 
       FStatusMsgLabel.Caption := 'Online. ' + IntToStr(A.Count) + ' pedido(s) pendente(s).';
-      LogMsg('[HEARTBEAT OK] Presença renovada. ' + IntToStr(A.Count) + ' pedido(s) pendente(s).');
+      LogMsg('[HEARTBEAT OK] Presença renovada. ' + IntToStr(W.Data.Arrays['items'].Count) + ' pedido(s) pendente(s).');
     end;
 
     opConnect: begin
@@ -1511,9 +1529,10 @@ end;
 procedure TMainForm.HandleStreamLog(Sender: TObject; const Msg: string);
 begin
   LogMsg(Msg);
-  if (Pos('[STREAM CLIENT ERRO]', Msg) > 0) or (Pos('Falha ao conectar', Msg) > 0) then begin
+  if (Pos('[STREAM CLIENT ERRO]', Msg) > 0) or (Pos('Falha ao conectar', Msg) > 0) or
+    (Pos('[PONTE CLIENTE ERRO]', Msg) > 0) then begin
     SendFailureLogToServer('STREAM_ERROR', Msg);
-    if (FRemoteViewer <> nil) and (FRelayClient = nil) then
+    if FRemoteViewer <> nil then
       FRemoteViewer.SetErrorMessage(Msg);
   end;
 end;

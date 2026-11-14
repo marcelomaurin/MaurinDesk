@@ -16,6 +16,7 @@ php = os.environ.get("PHP_BIN", "php")
 php_args = json.loads(os.environ.get("PHP_ARGS", "[]"))
 with tempfile.TemporaryDirectory(prefix="maurindesk-http-") as temp:
     env = dict(os.environ, APP_ENV="development", API_BASE_PATH="/maurindesk/api/v1",
+               DB_DRIVER="sqlite", MAURINDESK_ENV_FILE=str(Path(temp) / "unused.env"),
                MAURINDESK_DB_PATH=str(Path(temp) / "api.sqlite"))
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -47,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix="maurindesk-http-") as temp:
         cases = [
             ("invalid-json", "/devices", b"{", 400),
             ("array-json", "/devices", b"[]", 400),
-            ("oversized-body", "/devices", b"x" * 131073, 413),
+            ("oversized-body", "/devices", b"x" * 1048577, 413),
             ("private-route", "/sessions/incoming", None, 401),
         ]
         for name, path, payload, expected in cases:
@@ -57,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix="maurindesk-http-") as temp:
             assert headers.get("Cache-Control") == "no-store"
             print("OK", name, status)
         status, body, _ = request(base.rsplit("/v1", 1)[0] + "/")
-        assert status == 200 and body["data"]["version"] == "0.2"
+        assert status == 200 and body["data"]["version"] == "0.6"
         print("OK server root health and initial version")
         status, body, _ = request("/devices", json.dumps({
             "registration_id": "12345678-1234-4234-8234-123456789abc",

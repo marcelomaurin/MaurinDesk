@@ -1,0 +1,11 @@
+{
+  "version": "0.6.3",
+  "platform": "windows-x64",
+  "filename": "MaurinDesk-0.6.3.exe",
+  "bytes": 26747172,
+  "sha256": "df996091ac3868a8ee355190985337e43a8dbb76438de79c6898b57c8fa65cd8",
+  "lazarus": "4.6",
+  "fpc": "3.2.2",
+  "build_date": "2026-11-14",
+  "stage": "php-communication-diagnostics-relay-recovery"
+}

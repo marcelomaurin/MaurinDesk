@@ -1,5 +1,7 @@
 # MaurinDesk
 
+Correção **0.6.3** disponível em [bin/MaurinDesk-0.6.3.exe](bin/MaurinDesk-0.6.3.exe), com diagnóstico compartilhado pelo PHP. Veja [atualização e leitura dos logs](docs/13-diagnostico-comunicacao.md).
+
 Acesso remoto assistido, inspirado no fluxo de uso do AnyDesk, com cliente desktop Lazarus/Free Pascal nativo e servidor PHP exclusivamente de APIs e sinalização/relay.
 
 **Estado atual (v0.6.2): Transmissão de tela em tempo real, controle remoto bidirecional autenticado, priorização de HTTPS Relay com fallback P2P (7071/8080/9876), validação estrita de permissões de entrada e regras automáticas de Windows Firewall.**

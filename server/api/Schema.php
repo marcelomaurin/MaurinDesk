@@ -13,6 +13,13 @@ final class Schema {
         try {
             $curVer = $db->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColumn();
             if ($curVer === self::VERSION) {
+                // A version marker alone does not prove the relay tables survived a partial restore.
+                // Validate the structure without reading rows or rerunning DDL on every frame.
+                $db->query('SELECT e.local_ip,f.frame_id,f.frame_data,i.event_data,p.current_port
+                    FROM devices d,device_endpoints e,device_preferences pref,device_contacts c,
+                    sessions s,session_relay_frames f,session_relay_inputs i,session_ports p,
+                    audit_events a,device_logs l,schema_migrations m,api_mutex mutex,idempotency idem,rate_limits r
+                    WHERE 1=0');
                 return;
             }
         } catch (Throwable) {

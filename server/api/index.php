@@ -7,6 +7,8 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 function send_error(int $status,string $code,string $message) {
+    error_log('[MaurinDesk] '.json_encode(['event'=>'http.failed','http_status'=>$status,'code'=>$code,
+        'source_ip'=>$_SERVER['REMOTE_ADDR']??'unknown','time'=>gmdate('c')],JSON_UNESCAPED_SLASHES));
     http_response_code($status);
     echo json_encode(['error'=>['code'=>$code,'message'=>$message],'request_id'=>Api::uuid()]);
     exit;

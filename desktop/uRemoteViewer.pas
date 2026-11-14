@@ -161,7 +161,7 @@ begin
   begin
     FRelayClient.OnFrame := @HandleFrameReceived;
     FErrorMessage := '';
-    FStatusLabel.Caption := '● ' + _T(strViewerConnectedTo) + FRemoteKey + ' (Modo Ponte / Servidor)';
+    FStatusLabel.Caption := 'Aguardando primeira imagem de ' + FRemoteKey + ' (Ponte HTTPS)';
     FStatusLabel.Font.Color := RGBToColor(59, 130, 246);
     FFPSLabel.Caption := 'Ponte HTTP';
     FFPSLabel.Font.Color := RGBToColor(59, 130, 246);
@@ -254,7 +254,7 @@ begin
   FPaintBox.Canvas.Brush.Color := $1E1E2E;
   FPaintBox.Canvas.FillRect(0, 0, FPaintBox.Width, FPaintBox.Height);
 
-  if (FErrorMessage <> '') and (FRelayClient = nil) then
+  if FErrorMessage <> '' then
   begin
     BoxX := (FPaintBox.Width - 620) div 2;
     BoxY := (FPaintBox.Height - 260) div 2;
@@ -278,9 +278,9 @@ begin
 
     FPaintBox.Canvas.Font.Color := $A6ADC8;
     FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 84, '• Verifique se a máquina remota está conectada e online.');
-    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 106, '• Verifique se a porta TCP 9876 está liberada no Firewall do host.');
-    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 128, '• Em redes locais, tente informar o IP direto (ex: 172.17.x.x ou 192.168.x.x).');
-    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 150, '• O log foi registrado e enviado ao servidor para diagnóstico.');
+    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 106, '• Confira o envio do primeiro quadro no log do computador remoto.');
+    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 128, '• Confira o acesso HTTPS ao servidor nas duas maquinas.');
+    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 150, '• A ponte continua tentando receber a imagem automaticamente.');
 
     FPaintBox.Canvas.Font.Style := [fsBold];
     FPaintBox.Canvas.Font.Color := $F59E0B;
@@ -307,6 +307,9 @@ var
   NowTime: QWord;
 begin
   if (FrameBmp = nil) or (FrameBmp.Width = 0) then Exit;
+  FErrorMessage := '';
+  FStatusLabel.Caption := '● ' + _T(strViewerConnectedTo) + FRemoteKey;
+  FStatusLabel.Font.Color := RGBToColor(34, 197, 94);
 
   FRemoteBmp.Assign(FrameBmp);
   FPaintBox.Invalidate;

@@ -128,6 +128,7 @@ var
   Btn: Integer;
   IsDown: Boolean;
   WheelDelta, KeyCode: Integer;
+  CaptureFailures: Integer;
 begin
   Log('[PONTE HOST] Iniciando transmissão em Modo Ponte através do Servidor...');
   Client := TAIRemoteSignalingClient.Create;
@@ -136,13 +137,16 @@ begin
   Client.AllowLocalHTTP := FAllowLocal;
   FrameId := 0;
   FirstFrameConfirmed := False;
+  CaptureFailures := 0;
 
   try
     while FRunning and not Terminated do
     begin
+      try
       // 1. Captura a tela e compacta em JPEG
       if CaptureScreenBitmap(Bmp) then
       begin
+        CaptureFailures := 0;
         try
           JpegStream := TMemoryStream.Create;
           try
@@ -187,6 +191,15 @@ begin
         finally
           Bmp.Free;
         end;
+      end
+      else begin
+        Inc(CaptureFailures);
+        if (CaptureFailures = 1) or (CaptureFailures mod 30 = 0) then
+          Log('[PONTE HOST ERRO] Falha ao capturar tela. Verifique se ha uma area de trabalho interativa desbloqueada.');
+      end;
+      except
+        on E: Exception do
+          Log('[PONTE HOST ERRO] Falha na captura ou compactacao: ' + E.Message);
       end;
 
       // 2. Consulta comandos de mouse/teclado pendentes na ponte
@@ -235,6 +248,9 @@ begin
           end;
         end;
       except
+        on E: Exception do
+          if not FirstFrameConfirmed then
+            Log('[PONTE HOST ERRO] Falha ao consultar comandos: ' + E.Message);
       end;
 
       // Intervalo entre transmissões pela ponte (150ms ~ 6-7 FPS estáveis via HTTP)
@@ -371,17 +387,23 @@ var
   Jpg: TJPEGImage;
   PendingInputs: TJSONArray;
   PostResp: TJSONObject;
+  FirstFrameReceived: Boolean;
+  LastProgressLog, LastFrameTime: QWord;
 begin
   Log('[PONTE CLIENTE] Conectando à ponte do servidor...');
   Client := TAIRemoteSignalingClient.Create;
   Client.BaseURL := FAPIURL;
   Client.DeviceToken := FToken;
   Client.AllowLocalHTTP := FAllowLocal;
+  FirstFrameReceived := False;
+  LastProgressLog := 0;
+  LastFrameTime := GetTickCount64;
 
   try
     while FRunning and not Terminated do
     begin
       // 1. Envia inputs pendentes do usuário para a ponte
+      try
       PendingInputs := ExtractPendingInputs;
       if (PendingInputs <> nil) and (PendingInputs.Count > 0) then
       begin
@@ -394,6 +416,10 @@ begin
       end
       else if PendingInputs <> nil then
         PendingInputs.Free;
+      except
+        on E: Exception do
+          Log('[PONTE CLIENTE ERRO] Falha ao enviar comando: ' + E.Message);
+      end;
 
       // 2. Consulta o quadro mais recente da tela remota na ponte
       try
@@ -406,7 +432,6 @@ begin
 
             if (FrameId > FLatestFrameId) and (Base64Data <> '') then
             begin
-              FLatestFrameId := FrameId;
               RawBytes := DecodeStringBase64(Base64Data);
 
               if Length(RawBytes) > 0 then
@@ -421,9 +446,13 @@ begin
 
                   FSyncBmp.Assign(FLatestBmp);
                   FSyncFrameId := FrameId;
-                  if FLatestFrameId = FrameId then
-                    if FrameId = 1 then Log('[PONTE CLIENTE] Primeiro JPEG recebido e decodificado.');
                   Synchronize(@DoSyncFrame);
+                  FLatestFrameId := FrameId;
+                  LastFrameTime := GetTickCount64;
+                  if not FirstFrameReceived then begin
+                    Log('[PONTE CLIENTE] Primeiro JPEG recebido e decodificado. Quadro=' + IntToStr(FrameId));
+                    FirstFrameReceived := True;
+                  end;
                 finally
                   Jpg.Free;
                   JpegStream.Free;
@@ -437,6 +466,12 @@ begin
       except
         on E: Exception do
           Log('[PONTE CLIENTE ERRO] ' + E.Message);
+      end;
+      if (GetTickCount64 - LastFrameTime >= 10000) and
+        ((LastProgressLog = 0) or (GetTickCount64 - LastProgressLog >= 15000)) then begin
+        LastProgressLog := GetTickCount64;
+        Log('[PONTE CLIENTE ESPERA] Sem imagem nova ha ' + IntToStr((GetTickCount64 - LastFrameTime) div 1000) +
+          's. Confira [PHP COMUNICACAO] e o log [PONTE HOST] no computador remoto.');
       end;
 
       // Polling a cada 100ms

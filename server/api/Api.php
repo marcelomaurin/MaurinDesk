@@ -30,6 +30,9 @@ if (!function_exists('array_is_list')) {
 final class Api {
     private int $now;
     private bool $mysql;
+    private array $pendingLogs = [];
+    private string $sourceIP = '';
+    private string $requestId = '';
     public function __construct(private PDO $db, private $clock = null) {
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
@@ -77,6 +80,33 @@ final class Api {
     private function audit(string $event,?string $actor=null,?string $session=null): void {
         $this->run('INSERT INTO audit_events(session_id,actor_id,event_type,occurred_at) VALUES(?,?,?,?)',
             [$session,$actor,$event,$this->now]);
+        $this->pendingLogs[] = ['event'=>$event,'session_id'=>$session,'actor_id'=>$actor];
+    }
+    private function auditOnce(string $event,string $actor,string $session): void {
+        if (!$this->run('SELECT id FROM audit_events WHERE session_id=? AND event_type=? LIMIT 1',
+            [$session,$event])->fetch()) $this->audit($event,$actor,$session);
+    }
+    private function serverLog(array $data): void {
+        error_log('[MaurinDesk] '.json_encode($data + ['request_id'=>$this->requestId,
+            'source_ip'=>$this->sourceIP,'time'=>gmdate('c',$this->now)],JSON_UNESCAPED_SLASHES));
+    }
+    private function communication(array $session): array {
+        $peers=[];
+        foreach (['host'=>$session['host_id'],'requester'=>$session['requester_id']] as $role=>$id) {
+            $d=$this->run('SELECT d.last_seen,d.app_version,e.observed_ip,e.local_ip,e.port,e.updated_at
+                FROM devices d LEFT JOIN device_endpoints e ON e.device_id=d.id WHERE d.id=?',[$id])->fetch();
+            $peers[$role]=['observed_ip'=>$d['observed_ip']??null,'local_ip'=>$d['local_ip']??null,
+                'port'=>isset($d['port'])?(int)$d['port']:null,'app_version'=>$d['app_version'],
+                'online'=>(int)$d['last_seen']>$this->now-45,'last_seen'=>(int)$d['last_seen'],
+                'endpoint_fresh'=>isset($d['updated_at']) && (int)$d['updated_at']>$this->now-45];
+        }
+        $frame=$this->run('SELECT frame_id,updated_at FROM session_relay_frames WHERE session_id=?',[$session['id']])->fetch();
+        $events=$this->run('SELECT event_type,occurred_at FROM audit_events WHERE session_id=? ORDER BY occurred_at,id',
+            [$session['id']])->fetchAll();
+        return ['transport'=>'https_relay','host'=>$peers['host'],'requester'=>$peers['requester'],
+            'status'=>!$frame?'waiting_host_frame':((int)$frame['updated_at']<=$this->now-15?'frame_stalled':'frame_available'),
+            'frame_id'=>$frame?(int)$frame['frame_id']:0,'frame_uploaded_at'=>$frame?(int)$frame['updated_at']:null,
+            'events'=>$events,'reachability'=>'unverified','server_time'=>$this->now];
     }
     private function limit(string $bucket,int $max,int $seconds): void {
         $this->beginWrite();
@@ -261,13 +291,18 @@ final class Api {
             : 'ON CONFLICT(session_id) DO UPDATE SET frame_id=excluded.frame_id, frame_data=excluded.frame_data, updated_at=excluded.updated_at';
         $this->run('INSERT INTO session_relay_frames(session_id, frame_id, frame_data, updated_at) VALUES(?,?,?,?) ' . $upsert,
             [$session['id'], $frameId, $frameData, $this->now]);
+        $this->auditOnce('relay.first_frame_uploaded',$deviceId,$session['id']);
         return ['status' => 'ok', 'frame_id' => $frameId];
     }
 
-    private function getRelayFrame(array $session): array {
+    private function getRelayFrame(array $session, string $deviceId): array {
         $this->requireRelaySession($session, 'screen.view');
+        if ($deviceId === $session['requester_id'])
+            $this->auditOnce('relay.viewer_polling',$deviceId,$session['id']);
         $row = $this->run('SELECT frame_id, frame_data, updated_at FROM session_relay_frames WHERE session_id=?', [$session['id']])->fetch();
         if (!$row) return ['status' => 'no_frame', 'frame_id' => 0, 'frame_data' => ''];
+        if ($deviceId === $session['requester_id'])
+            $this->auditOnce('relay.first_frame_served',$deviceId,$session['id']);
         return ['status' => 'ok', 'frame_id' => (int)$row['frame_id'], 'frame_data' => $row['frame_data'], 'updated_at' => (int)$row['updated_at']];
     }
 
@@ -366,6 +401,7 @@ final class Api {
         $this->now=$this->clock ? ($this->clock)() : time();
         $headers=array_change_key_case($headers,CASE_LOWER);
         $requestId=self::uuid(); $transaction=false;
+        $this->pendingLogs=[]; $this->sourceIP=$ip; $this->requestId=$requestId;
         try {
             if ($method==='GET' && $path==='/health') {
                 $this->db->query('SELECT id FROM devices LIMIT 1');
@@ -467,14 +503,19 @@ final class Api {
                 $rows=$this->run("SELECT * FROM sessions WHERE host_id=? AND state='pending' ORDER BY created_at,id LIMIT 100",
                     [$device['id']])->fetchAll();
                 $data=['items'=>array_map(fn($s)=>$this->view($s),$rows),'server_time'=>gmdate('c',$this->now)];
+                foreach ($rows as $incoming) $this->auditOnce('session.delivered',$device['id'],$incoming['id']);
             } elseif (preg_match('#^/sessions/([a-f0-9-]{36})(?:/(decision|cancel|close|peer|port|relay_frame|relay_input))?$#D',$path,$m)) {
                 $s=$this->session($m[1],$device['id']); $action=$m[2]??'';
-                if ($method==='GET' && $action==='') $data=$this->view($s);
+                if ($method==='GET' && $action==='') {
+                    $data=$this->view($s);
+                    if (in_array($s['state'],['accepted','connecting','active'],true))
+                        $data['communication']=$this->communication($s);
+                }
                 elseif ($method==='GET' && $action==='peer') $data=$this->peerEndpoint($s,$device['id']);
                 elseif ($method==='GET' && $action==='port') $data=$this->getPortStatus($s);
                 elseif ($method==='POST' && $action==='port') $data=$this->handlePortNegotiation($s,$body);
                 elseif ($method==='POST' && $action==='relay_frame') $data=$this->postRelayFrame($s,$device['id'],$body);
-                elseif ($method==='GET' && $action==='relay_frame') $data=$this->getRelayFrame($s);
+                elseif ($method==='GET' && $action==='relay_frame') $data=$this->getRelayFrame($s,$device['id']);
                 elseif ($method==='POST' && $action==='relay_input') $data=$this->postRelayInput($s,$device['id'],$body);
                 elseif ($method==='GET' && $action==='relay_input') $data=$this->getRelayInput($s,$device['id']);
                 elseif ($method==='POST' && $action==='close') {
@@ -514,9 +555,13 @@ final class Api {
             if ($idem!==null) $this->run('INSERT INTO idempotency(device_id,route,`key`,body_hash,response,status,expires_at) VALUES(?,?,?,?,?,?,?)',
                 [$device['id'],$method.' '.$path,$idem,$bodyHash,json_encode($data,JSON_THROW_ON_ERROR),$status,$this->now+86400]);
             $this->db->exec('COMMIT'); $transaction=false;
+            foreach ($this->pendingLogs as $log) $this->serverLog($log);
             return [$status,['data'=>$data,'request_id'=>$requestId]];
         } catch(Throwable $e) {
             if ($transaction) $this->db->exec('ROLLBACK');
+            $this->serverLog(['event'=>'request.failed','method'=>$method,'route'=>$path,
+                'http_status'=>$e instanceof ApiError?$e->status:503,
+                'code'=>$e instanceof ApiError?$e->errorCode:get_class($e)]);
             if ($e instanceof ApiError)
                 return [$e->status,['error'=>['code'=>$e->errorCode,'message'=>$e->getMessage()],'request_id'=>$requestId]];
             // Do not log exception text: database values may contain credentials.

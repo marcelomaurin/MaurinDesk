@@ -17,7 +17,7 @@ $db->exec("INSERT INTO params VALUES('EXEMPLO','preservar')");
 Schema::migrate($db);
 check($db->query("SELECT valor FROM params WHERE chave='EXEMPLO'")->fetchColumn()==='preservar','existing parameter preserved');
 check((int)$db->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn()===6,'history is not duplicated');
-foreach (['device_endpoints','device_preferences','device_contacts'] as $table) {
+foreach (['device_endpoints','device_preferences','device_contacts','session_relay_frames','session_relay_inputs','session_ports'] as $table) {
     $db->exec('DROP TABLE '.$table); Schema::migrate($db);
     check((int)$db->query('SELECT COUNT(*) FROM '.$table)->fetchColumn()===0,'missing '.$table.' recreated');
 }
@@ -48,6 +48,8 @@ $legacy->exec('DROP TRIGGER fail_history'); Schema::migrate($legacy);
 check($legacy->query("SELECT valor FROM params WHERE chave='VERSAO'")->fetchColumn()===Schema::VERSION,'retry upgrades legacy database to '.Schema::VERSION);
 check($legacy->query("SELECT public_key FROM devices WHERE id='old-device'")->fetchColumn()==='0000000007','upgrade preserves machine identity and leading zeroes');
 check($legacy->query("SELECT display_name FROM devices WHERE id='old-device'")->fetchColumn()==='Nome preservado','upgrade preserves machine name');
-check($legacy->query("SELECT language FROM device_preferences WHERE device_id='old-device'")->fetchColumn()==='pt-BR','upgrade seeds preferences for existing device');
+require_once dirname(__DIR__,2).'/server/api/DesktopData.php';
+$preferences=(new \MaurinDesk\DesktopData($legacy,time()))->preferences('old-device');
+check($preferences['language']==='pt-BR','upgraded device gets default preferences on first access');
 check($legacy->query("SELECT descricao FROM schema_migrations WHERE versao='0.1'")->fetchColumn()==='Base existente','old migration history preserved');
 echo "$count schema assertions passed\n";

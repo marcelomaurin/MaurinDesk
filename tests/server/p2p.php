@@ -67,7 +67,7 @@ endpoint($host,['port'=>50000,'transport'=>'tcp'],'203.0.113.5');
 [$st,$r]=callApi('GET','/sessions/'.$id.'/peer',[],$client);
 check($st===200 && $r['data']['observed_ip']==='203.0.113.5' && $r['data']['port']===50000,
     'endpoint refresh replaces old address and port');
-$now+=30;
+$now+=600;
 [$st,$r]=callApi('GET','/sessions/'.$id.'/peer',[],$client);
 check($st===410,'negotiation expiry stops discovery even with fresh endpoint');
 
