@@ -1293,20 +1293,11 @@ begin
             FRemoteViewer.Show;
             LogMsg('[VIEWER] Janela do visualizador remoto aberta!');
 
-            if PeerObj.Get('use_relay', false) then
-            begin
-              LogMsg('[PONTE] Conexão direcionada para o Modo Ponte através do Servidor.');
-              StartRelayStreaming;
-            end
-            else
-            begin
-              LogMsg('[STREAM] Testando conexões diretas P2P (Local: ' + PeerLocalIP + ', Remoto: ' + PeerObservedIP + ':' + IntToStr(PeerPort) + ')...');
-              FStreamClient := TDeskStreamClient.Create(PeerObservedIP, PeerPort, PeerLocalIP, FSessionId, FToken, True);
-              FStreamClient.OnLog := @HandleStreamLog;
-              FStreamClient.OnFallbackToRelay := @HandleFallbackToRelay;
-              FStreamClient.OnPortSuccess := @HandlePortSuccess;
-              FStreamClient.Start;
-            end;
+            // Relay-first: a primeira imagem nao depende de portas TCP de entrada.
+            // P2P permanece disponivel no codigo para uma futura troca de transporte
+            // somente depois que o primeiro quadro for confirmado.
+            LogMsg('[PONTE] Modo relay-first: iniciando imagem via HTTPS, sem tentativa P2P.');
+            StartRelayStreaming;
           end else begin
             if W.Data.Find('peer_endpoint_error') <> nil then
               LogMsg('[STREAM] Aguardando endpoint do host: ' + W.Data.Get('peer_endpoint_error', ''))
