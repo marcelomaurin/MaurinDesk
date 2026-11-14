@@ -240,8 +240,18 @@ final class Api {
         } catch (\Throwable) {}
     }
 
+    private function requireRelaySession(array $session, string $permission): void {
+        if (!in_array($session['state'], ['accepted', 'connecting', 'active'], true) ||
+            (int)$session['expires_at'] <= $this->now)
+            $this->fail(403, 'FORBIDDEN', 'Sessao nao autorizada ou expirada.');
+        $granted = json_decode($session['granted'], true);
+        if (!is_array($granted) || !in_array($permission, $granted, true))
+            $this->fail(403, 'FORBIDDEN', 'Permissao nao concedida para esta sessao.');
+    }
+
     private function postRelayFrame(array $session, string $deviceId, array $body): array {
         if ($session['host_id'] !== $deviceId) $this->fail(403, 'FORBIDDEN', 'Apenas o host transmite a tela.');
+        $this->requireRelaySession($session, 'screen.view');
         $frameId = (int)($body['frame_id'] ?? 0);
         $frameData = (string)($body['frame_data'] ?? '');
         if ($frameData === '') $this->fail(400, 'VALIDATION_ERROR', 'Dados do quadro vazios.');
@@ -255,6 +265,7 @@ final class Api {
     }
 
     private function getRelayFrame(array $session): array {
+        $this->requireRelaySession($session, 'screen.view');
         $row = $this->run('SELECT frame_id, frame_data, updated_at FROM session_relay_frames WHERE session_id=?', [$session['id']])->fetch();
         if (!$row) return ['status' => 'no_frame', 'frame_id' => 0, 'frame_data' => ''];
         return ['status' => 'ok', 'frame_id' => (int)$row['frame_id'], 'frame_data' => $row['frame_data'], 'updated_at' => (int)$row['updated_at']];
@@ -262,9 +273,18 @@ final class Api {
 
     private function postRelayInput(array $session, string $deviceId, array $body): array {
         if ($session['requester_id'] !== $deviceId) $this->fail(403, 'FORBIDDEN', 'Apenas o controlador envia comandos.');
+        $this->requireRelaySession($session, 'screen.view');
+        $granted = json_decode($session['granted'], true) ?: [];
+        if (!in_array('input.mouse', $granted, true) && !in_array('input.keyboard', $granted, true))
+            $this->fail(403, 'FORBIDDEN', 'Sessao autorizada apenas para visualizacao.');
         $events = $body['events'] ?? [];
         if (!is_array($events)) $this->fail(400, 'VALIDATION_ERROR', 'Array de eventos esperado.');
         foreach ($events as $ev) {
+            if (!is_array($ev)) $this->fail(400, 'VALIDATION_ERROR', 'Evento invalido.');
+            $type = $ev['type'] ?? '';
+            $permission = ($type === 'key') ? 'input.keyboard' : 'input.mouse';
+            if (!in_array($type, ['move', 'button', 'wheel', 'key'], true) || !in_array($permission, $granted, true))
+                $this->fail(403, 'FORBIDDEN', 'Comando nao autorizado para esta sessao.');
             $this->run('INSERT INTO session_relay_inputs(session_id, event_data, created_at) VALUES(?,?,?)',
                 [$session['id'], json_encode($ev), $this->now]);
         }
@@ -273,6 +293,7 @@ final class Api {
 
     private function getRelayInput(array $session, string $deviceId): array {
         if ($session['host_id'] !== $deviceId) $this->fail(403, 'FORBIDDEN', 'Apenas o host consome comandos de entrada.');
+        $this->requireRelaySession($session, 'screen.view');
         $rows = $this->run('SELECT id, event_data FROM session_relay_inputs WHERE session_id=? ORDER BY id ASC LIMIT 50', [$session['id']])->fetchAll();
         if ($rows) {
             $ids = array_column($rows, 'id');

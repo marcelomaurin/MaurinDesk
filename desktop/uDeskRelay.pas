@@ -117,6 +117,7 @@ var
   RawBytes: string;
   Base64Data: string;
   FrameId: Cardinal;
+  FirstFrameConfirmed: Boolean;
   Resp: TJSONObject;
   InputResp: TJSONObject;
   EventsArr: TJSONArray;
@@ -134,6 +135,7 @@ begin
   Client.DeviceToken := FToken;
   Client.AllowLocalHTTP := FAllowLocal;
   FrameId := 0;
+  FirstFrameConfirmed := False;
 
   try
     while FRunning and not Terminated do
@@ -155,8 +157,29 @@ begin
               Base64Data := EncodeStringBase64(RawBytes);
 
               // Envia quadro à ponte no servidor
-              Resp := Client.PostRelayFrame(FSessionId, FrameId, Base64Data);
-              if Resp <> nil then Resp.Free;
+              try
+                Resp := Client.PostRelayFrame(FSessionId, FrameId, Base64Data);
+                if Resp <> nil then
+                begin
+                  try
+                    if not FirstFrameConfirmed then
+                    begin
+                      Log('[PONTE HOST] Primeiro quadro enviado ao servidor (HTTP relay).');
+                      FirstFrameConfirmed := True;
+                    end;
+                  finally
+                    Resp.Free;
+                  end;
+                end
+                else if FrameId = 1 then
+                  Log('[PONTE HOST ERRO] Servidor nao confirmou o primeiro quadro.');
+              except
+                on E: Exception do
+                begin
+                  if (FrameId <= 3) or (FrameId mod 30 = 0) then
+                    Log('[PONTE HOST ERRO] Falha ao enviar quadro ' + IntToStr(FrameId) + ': ' + E.Message);
+                end;
+              end;
             end;
           finally
             JpegStream.Free;
@@ -398,6 +421,8 @@ begin
 
                   FSyncBmp.Assign(FLatestBmp);
                   FSyncFrameId := FrameId;
+                  if FLatestFrameId = FrameId then
+                    if FrameId = 1 then Log('[PONTE CLIENTE] Primeiro JPEG recebido e decodificado.');
                   Synchronize(@DoSyncFrame);
                 finally
                   Jpg.Free;
