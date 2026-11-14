@@ -1,5 +1,14 @@
 # Histórico
 
+## 0.6.6 — 14/11/2026
+- Reproduzida e corrigida a desconexão acidental ao pressionar Enter no visualizador: foco dedicado à imagem remota e consumo das teclas remotas, evitando acionamento dos botões locais. Teclas pressionadas são liberadas ao perder foco.
+- Ícone MaurinDesk multi-resolução incorporado ao executável e carregado explicitamente na área do relógio. O programa não fica oculto caso o Windows não confirme o ícone.
+- Menu “Arquivos e pastas” no visualizador e na janela principal: selecionar múltiplos arquivos, enviar uma pasta e abrir a pasta local de recebidos, com estado da transferência visível.
+- Confirmação de recebimento após preparar o clipboard no destino; arquivos aguardam essa confirmação antes de serem substituídos por outra cópia, quando ambos os clientes suportam o protocolo. Compatibilidade com a API/cliente anterior para transferência sem confirmação.
+- Migração 0.8 para os comprovantes e atualização da versão instalada no heartbeat. Sessões encerradas informam autor e motivo aos dois participantes.
+- Relatórios de diagnóstico deixam de alterar o estado de ocupação do worker principal de sessão.
+- Testes: regressão de teclado (falhava com Enter antes da correção), ícones embutidos em 16/32/48 px, pacote com arquivo binário de 10 MiB, diretórios, confirmação de entrega e encerramento com origem identificada.
+
 ## 0.6.5 — 14/11/2026
 - Layout claro com cartões, navegação entre conexões/favoritos/histórico, cópia de chave e diagnóstico recolhível; adaptação para janelas menores.
 - Clipboard bidirecional de texto Unicode, arquivos, múltiplos itens e pastas com envio em partes e verificação de integridade. Novas rotas autenticadas e migração de banco `0.7`.

@@ -24,10 +24,11 @@ begin
     Exit;
   end;
   if (ParamCount=1) and (ParamStr(1)='--self-test') then begin
+    if Application.Icon.Empty then begin MainForm.Free; Halt(1); end;
     MainForm.Free;
     Exit;
   end;
-  for I:=1 to ParamCount do if ParamStr(I)='--minimized' then begin
+  for I:=1 to ParamCount do if (ParamStr(I)='--minimized') and MainForm.TrayAvailable then begin
     Application.ShowMainForm:=False; MainForm.Hide;
   end;
   Application.Run;

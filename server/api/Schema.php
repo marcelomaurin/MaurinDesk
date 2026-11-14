@@ -7,7 +7,7 @@ use Throwable;
 
 /** Ordered migrations. VERSAO changes only after successful schema changes. */
 final class Schema {
-    public const VERSION='0.7';
+    public const VERSION='0.8';
     public static function migrate(PDO $db): void {
         // Fast path: se o banco já estiver na versão mais recente, não precisa travar nem verificar migrações a cada request
         try {
@@ -15,7 +15,7 @@ final class Schema {
             if ($curVer === self::VERSION) {
                 // A version marker alone does not prove the relay tables survived a partial restore.
                 // Validate the structure without reading rows or rerunning DDL on every frame.
-                $db->query('SELECT e.local_ip,f.frame_id,f.frame_data,i.event_data,p.current_port
+                $db->query('SELECT e.local_ip,f.frame_id,f.frame_data,i.event_data,p.current_port,ct.received_at
                     FROM devices d,device_endpoints e,device_preferences pref,device_contacts c,
                     sessions s,session_relay_frames f,session_relay_inputs i,session_ports p,
                     audit_events a,device_logs l,schema_migrations m,api_mutex mutex,idempotency idem,rate_limits r,
@@ -77,6 +77,9 @@ final class Schema {
                 '0.7'=>['descricao'=>'Area de transferencia bidirecional de texto e arquivos por partes',
                     'repairable'=>true,
                     'files'=>$mysql ? ['008_clipboard.mysql.sql'] : ['008_clipboard.sqlite.sql']],
+                '0.8'=>['descricao'=>'Confirmacao do recebimento de arquivos e clipboard',
+                    'repairable'=>true,
+                    'files'=>$mysql ? ['009_clipboard_receipt.mysql.sql'] : ['009_clipboard_receipt.sqlite.sql']],
             ];
             foreach ($migrations as $version=>$migration) {
                 // Baseline CREATE IF NOT EXISTS also restores missing tables.

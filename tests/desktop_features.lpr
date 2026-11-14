@@ -1,8 +1,8 @@
 program desktop_features;
 {$mode objfpc}{$H+}{$codepage utf8}
-uses Interfaces, Forms, Classes, SysUtils, fpjson, uDeskClipboardData, uDeskUpdate, setmain;
+uses Interfaces, Forms, Classes, Windows, SysUtils, Graphics, fpjson, uDeskClipboardData, uDeskUpdate, setmain;
 var Root, SourceDir, DestDir, PackageName, HashFile: string; Paths, Received: TStringList;
-    Settings, Reloaded: TSetMain; Data: TJSONObject; Count: Integer;
+    Settings, Reloaded: TSetMain; Data: TJSONObject; Count, IconSize: Integer; IconModule: HMODULE; LoadedIcon: HICON; LoadedGraphic: TIcon;
 procedure Check(Value: Boolean; const Msg: string);
 begin if not Value then raise Exception.Create('FAIL: '+Msg); Inc(Count); WriteLn('OK ',Msg); end;
 procedure WriteBytes(const Path, Data: string);
@@ -24,7 +24,7 @@ begin
     ForceDirectories(Root); SourceDir:=Root+'Origem'; DestDir:=Root+'Received'; PackageName:=Root+'package.bin'; HashFile:=Root+'hash.txt';
     ForceDirectories(SourceDir+PathDelim+'Pasta vazia');
     WriteBytes(SourceDir+PathDelim+'ação.txt','Olá! 漢字 😀'+#13#10+'linha dois');
-    WriteBytes(SourceDir+PathDelim+'binary.dat',#0#255#1#127+StringOfChar('Z',300000));
+    WriteBytes(SourceDir+PathDelim+'binary.dat',#0#255#1#127+StringOfChar('Z',10*1024*1024));
     WriteBytes(Root+'outro.txt','Segundo arquivo');
     Paths:=TStringList.Create; Received:=TStringList.Create;
     try
@@ -42,11 +42,24 @@ begin
     WriteBytes(HashFile,'abc');
     Check(FileSHA256(HashFile)='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad','native SHA-256 known vector');
     Check(VersionIsNewer('0.6.10','0.6.9'),'numeric version order handles double digits');
-    Check(not VersionIsNewer('0.6.5','0.6.5'),'equal version does not update');
-    Check(not VersionIsNewer('0.6.4','0.6.5'),'older version does not update');
-    Check(not VersionIsNewer('malicious','0.6.5'),'invalid version does not update');
-    Check(not VersionIsNewer('0."7".0','0.6.5'),'quoted version does not update');
-    Check(ExecutableVersion(ExpandFileName(Root+'../../bin/MaurinDesk.exe'))='0.6.5.0','executable version resource matches release');
+    Check(not VersionIsNewer('0.6.6','0.6.6'),'equal version does not update');
+    Check(not VersionIsNewer('0.6.4','0.6.6'),'older version does not update');
+    Check(not VersionIsNewer('malicious','0.6.6'),'invalid version does not update');
+    Check(not VersionIsNewer('0."7".0','0.6.6'),'quoted version does not update');
+    Check(ExecutableVersion(ExpandFileName(Root+'../../bin/MaurinDesk.exe'))='0.6.6.0','executable version resource matches release');
+    IconModule:=LoadLibraryExW(PWideChar(UTF8Decode(ExpandFileName(Root+'../../bin/MaurinDesk.exe'))),0,LOAD_LIBRARY_AS_DATAFILE);
+    Check(IconModule<>0,'executable resources available');
+    try
+      LoadedGraphic:=TIcon.Create;
+      try LoadedGraphic.LoadFromResourceName(IconModule,'MAINICON');
+        Check(not LoadedGraphic.Empty,'Lazarus decodes the embedded application and tray icon');
+      finally LoadedGraphic.Free; end;
+      for IconSize in [16,32,48] do begin
+        LoadedIcon:=LoadImageW(IconModule,'MAINICON',IMAGE_ICON,IconSize,IconSize,0);
+        Check(LoadedIcon<>0,'real application icon embedded at size '+IntToStr(IconSize));
+        DestroyIcon(LoadedIcon);
+      end;
+    finally FreeLibrary(IconModule); end;
     Data:=TJSONObject.Create(['version','0.6.6','platform','windows-x64','filename','MaurinDesk.exe',
       'download_url',DESK_DOWNLOAD_URL,'bytes',27000000,'sha256',StringOfChar('a',64)]);
     try

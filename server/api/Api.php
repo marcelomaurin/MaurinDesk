@@ -151,12 +151,19 @@ final class Api {
     }
     private function view(array $s): array {
         $r=$this->run('SELECT public_key,display_name FROM devices WHERE id=?',[$s['requester_id']])->fetch();
+        $closed=null;
+        if ($s['state']==='closed') {
+            $event=$this->run("SELECT actor_id,occurred_at FROM audit_events WHERE session_id=? AND event_type='session.closed'
+                ORDER BY occurred_at DESC,id DESC LIMIT 1",[$s['id']])->fetch();
+            if ($event) $closed=['device_id'=>$event['actor_id'],'role'=>$event['actor_id']===$s['host_id']?'host':'controller',
+                'occurred_at'=>(int)$event['occurred_at']];
+        }
         return ['id'=>$s['id'],'state'=>$s['state'],'requester_id'=>$s['requester_id'],
             'host_id'=>$s['host_id'],'requester_key'=>$r['public_key'],'requester_name'=>$r['display_name'],
             'requested_permissions'=>json_decode($s['requested'],true),
             'granted_permissions'=>json_decode($s['granted'],true),
             'expires_at'=>gmdate('Y-m-d\TH:i:s\Z',(int)$s['expires_at']),
-            'reason'=>$s['reason']];
+            'reason'=>$s['reason'],'closed_by'=>$closed];
     }
     private function session(string $id,string $device): array {
         $s=$this->run('SELECT * FROM sessions WHERE id=? AND (host_id=? OR requester_id=?)',[$id,$device,$device])->fetch();
@@ -468,6 +475,11 @@ final class Api {
             } elseif ($method==='POST' && $path==='/devices/endpoint') {
                 $data=$this->publishEndpoint($device,$body,$ip);
             } elseif ($method==='POST' && $path==='/devices/heartbeat') {
+                if (isset($body['app_version'])) {
+                    $version=$this->text($body,'app_version',20);
+                    if (!preg_match('/^\d+\.\d+\.\d+(?:\.\d+)?$/D',$version)) $this->fail(400,'VALIDATION_ERROR','Versao invalida.');
+                    $this->run('UPDATE devices SET app_version=? WHERE id=?',[$version,$device['id']]);
+                }
                 $this->run('UPDATE devices SET last_seen=? WHERE id=?',[$this->now,$device['id']]);
                 $this->run("UPDATE sessions SET expires_at=? WHERE (requester_id=? OR host_id=?) AND state IN ('accepted','connecting','active')",
                     [$this->now+600,$device['id'],$device['id']]);

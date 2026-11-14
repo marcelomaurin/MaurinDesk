@@ -1,4 +1,4 @@
-# Desktop Lazarus — 0.6.5
+# Desktop Lazarus — 0.6.6
 
 Cliente Windows x64 com tela remota, controle, clipboard de texto/arquivos, favoritos, histórico, área do relógio, instalação por usuário e atualizações pelo GitHub.
 

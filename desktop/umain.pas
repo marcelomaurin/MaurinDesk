@@ -2,7 +2,7 @@ unit umain;
 {$mode objfpc}{$H+}
 interface
 uses Classes, SysUtils, DateUtils, Forms, Controls, StdCtrls, ExtCtrls, Dialogs, LMessages,
-  Graphics, Menus, Clipbrd, IniFiles, md5,
+  Graphics, Menus, Clipbrd, IniFiles, md5, LCLIntf,
   fpjson, jsonparser, airemoteidentity, airemotesignaling,
   uDeskProtocol, uScreenCapture, uDeskStream, uRemoteViewer, uDeskRelay, uDeskI18n, uDeskFirewall,
   uDeskHTTP, uDeskClipboard, uDeskUI, setmain, uDeskSettings, uDeskUpdate;
@@ -23,6 +23,7 @@ type
     URL, Token, IdentityFile, RemoteKey, SessionId, Failure: string;
     LogCategory, LogMessage, LogContent: string;
     StreamPort: Integer;
+    CloseReason: string;
     AllowLocal, Control: Boolean;
     Data: TJSONObject;
     constructor Create(AOwner: TMainForm);
@@ -65,8 +66,13 @@ type
     FSessionTargetKey: string;
     FSessionWasAccepted: Boolean;
     FStoppingSession: Boolean;
+    FStoppingStreams: Boolean;
     FNamePromptKey: string;
     FLastIncomingId: string;
+    FTrayAvailable: Boolean;
+    FRequestedCloseReason: string;
+    FTransferMenu: TPopupMenu;
+    FBtnTransfer: TDeskButton;
     procedure BuildModernLayout;
     procedure LayoutModern(Sender: TObject);
     procedure NavigationClick(Sender: TObject);
@@ -76,6 +82,12 @@ type
     procedure NameRemote;
     procedure PromptRemoteName(Data: PtrInt);
     procedure ProcessPendingOperation(Data: PtrInt);
+    procedure InitializeTrayIcon;
+    procedure FileTransferMenuClick(Sender: TObject);
+    procedure ChooseFiles(Sender: TObject);
+    procedure ChooseFolder(Sender: TObject);
+    procedure QueueSelectedFiles(Sender: TObject; Paths: TStrings);
+    procedure OpenReceivedFiles(Sender: TObject);
     procedure RestoreFromTray(Sender: TObject);
     procedure ExitFromTray(Sender: TObject);
     procedure WindowStateChanged(Sender: TObject);
@@ -209,6 +221,7 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
+    property TrayAvailable: Boolean read FTrayAvailable;
   end;
 
 var
@@ -285,7 +298,7 @@ begin
             C.DeviceToken := Identity.Get('device_token', '');
             if (C.DeviceToken <> '') and (Identity.Get('public_key', '') <> '') then begin
               try
-                J := C.Heartbeat;
+                J := DeskHeartbeat(URL,C.DeviceToken,DESK_VERSION,AllowLocal);
                 J.Free;
                 R := TJSONObject.Create([
                   'device_token', C.DeviceToken,
@@ -303,7 +316,7 @@ begin
                 Identity.Get('registration_secret', ''),
                 GetEnvironmentVariable('COMPUTERNAME'),
                 'windows',
-                '0.6.5'
+                '0.6.6'
               );
             end;
             try
@@ -329,7 +342,7 @@ begin
         end;
 
         opPoll: begin
-          J := C.Heartbeat;
+          J := DeskHeartbeat(URL,C.DeviceToken,DESK_VERSION,AllowLocal);
           J.Free;
           try
             J := C.AnnounceEndpoint(StreamPort, 'tcp', GetLocalIPAddress);
@@ -372,7 +385,7 @@ begin
           end;
         end;
         opReject: Data := C.Decide(SessionId, False, False);
-        opClose: Data := C.CloseSession(SessionId, 'local_stop');
+        opClose: Data := C.CloseSession(SessionId, CloseReason);
         opHealth: Data := C.Health;
         opSendLog: Data := C.SendDiagnosticLog(LogCategory, LogMessage, LogContent, SessionId);
       end;
@@ -429,7 +442,7 @@ begin
   FNavConnect.Selected := True;
   FBannerPanel := Panel(FSidebar); FBannerPanel.Align := alBottom; FBannerPanel.Height := 100;
   FBannerTitleLabel := LabelAt(FBannerPanel,'MaurinDesk',20,12,160,22,11,True);
-  FBannerBuildLabel := LabelAt(FBannerPanel,'v0.6.5',20,36,160,20,9);
+  FBannerBuildLabel := LabelAt(FBannerPanel,'v0.6.6',20,36,160,20,9);
   FBannerWebLabel := LabelAt(FBannerPanel,'maurinsoft.com.br',20,61,160,20,9);
   FBannerWebLabel.Font.Color := RGBToColor(126,135,151);
   FContentArea := Panel(Self); FContentArea.Align := alClient; FContentArea.Color := RGBToColor(248,249,252);
@@ -464,6 +477,11 @@ begin
   FDiscTitle := LabelAt(FDiscoveryCard,'Área de transferência',20,12,500,24,11,True);
   FDiscSubtitle := LabelAt(FDiscoveryCard,'Texto e arquivos durante a sessão autorizada.',20,36,800,22,9);
   FDiscSubtitle.Font.Color := RGBToColor(107,117,133);
+  FTransferMenu:=TPopupMenu.Create(Self);
+  Item:=TMenuItem.Create(FTransferMenu); Item.Caption:='Enviar arquivos...'; Item.OnClick:=@ChooseFiles; FTransferMenu.Items.Add(Item);
+  Item:=TMenuItem.Create(FTransferMenu); Item.Caption:='Enviar pasta...'; Item.OnClick:=@ChooseFolder; FTransferMenu.Items.Add(Item);
+  Item:=TMenuItem.Create(FTransferMenu); Item.Caption:='Abrir arquivos recebidos'; Item.OnClick:=@OpenReceivedFiles; FTransferMenu.Items.Add(Item);
+  FBtnTransfer:=ButtonAt(FDiscoveryCard,'Arquivos e pastas',@FileTransferMenuClick);
   FDiscServerLabel := LabelAt(FDiscoveryCard,'',0,0,0,0,8); FDiscServerLabel.Visible := False;
   FLogPanel := Panel(FContentArea,True);
   FLogHeader := Panel(FLogPanel); FLogHeader.Color := clWhite; FLogHeader.Cursor := crHandPoint; FLogHeader.OnClick := @ToggleLog;
@@ -490,9 +508,10 @@ begin
   Item := TMenuItem.Create(FTrayMenu); Item.Caption := 'Abrir MaurinDesk'; Item.OnClick := @RestoreFromTray; FTrayMenu.Items.Add(Item);
   Item := TMenuItem.Create(FTrayMenu); Item.Caption := 'Configurações'; Item.OnClick := @SettingsClick; FTrayMenu.Items.Add(Item);
   Item := TMenuItem.Create(FTrayMenu); Item.Caption := 'Sair do MaurinDesk'; Item.OnClick := @ExitFromTray; FTrayMenu.Items.Add(Item);
-  FTrayIcon := TTrayIcon.Create(Self); FTrayIcon.Hint := 'MaurinDesk — disponível para conexões';
-  FTrayIcon.Icon.Assign(Application.Icon); FTrayIcon.PopupMenu := FTrayMenu;
-  FTrayIcon.OnDblClick := @RestoreFromTray; FTrayIcon.Visible := True;
+  FTrayIcon := TTrayIcon.Create(Self); FTrayIcon.Hint := 'MaurinDesk — clique para abrir';
+  FTrayIcon.PopupMenu := FTrayMenu;
+  FTrayIcon.OnClick:=@RestoreFromTray; FTrayIcon.OnDblClick := @RestoreFromTray;
+  InitializeTrayIcon;
   OnResize := @LayoutModern; OnWindowStateChange := @WindowStateChanged;
   LayoutModern(Self);
 end;
@@ -529,7 +548,8 @@ begin
   FBtnCopyLog.SetBounds(342,45,88,32); FBtnClearLog.SetBounds(440,45,88,32);
   FLogMemo.SetBounds(12,86,RowW-24,LogHeight-98);
   BottomY := BottomY-LogHeight-12;
-  FDiscoveryCard.SetBounds(28,BottomY-70,RowW,70); FDiscSubtitle.Width := RowW-40;
+  FDiscoveryCard.SetBounds(28,BottomY-70,RowW,70); FDiscSubtitle.Width := RowW-226;
+  FBtnTransfer.SetBounds(RowW-194,17,176,36);
   BottomY := BottomY-82;
   if FActiveSessionPanel.Visible then begin
     FActiveSessionPanel.SetBounds(28,BottomY-52,RowW,52); FActiveSessionText.Width := RowW-206;
@@ -571,7 +591,54 @@ begin WindowState := wsNormal; Show; BringToFront; Application.BringToFront; end
 procedure TMainForm.ExitFromTray(Sender: TObject);
 begin FExitRequested := True; Close; end;
 procedure TMainForm.WindowStateChanged(Sender: TObject);
-begin if WindowState = wsMinimized then Hide; end;
+begin if (WindowState = wsMinimized) and FTrayAvailable then Hide; end;
+
+procedure TMainForm.InitializeTrayIcon;
+begin
+  if FTrayAvailable then Exit;
+  try
+    FTrayIcon.Hide;
+    FTrayIcon.Icon.LoadFromResourceName(HInstance,'MAINICON');
+    if FTrayIcon.Icon.Empty then raise Exception.Create('Icone nao carregado');
+    Application.Icon.Assign(FTrayIcon.Icon); Icon.Assign(FTrayIcon.Icon);
+    FTrayAvailable:=FTrayIcon.Show;
+    if FTrayAvailable then LogMsg('[BANDEJA] Icone MaurinDesk adicionado a area do relogio.')
+    else begin FTrayIcon.Hide; LogMsg('[BANDEJA AVISO] O Windows nao confirmou o icone. A janela permanecera acessivel.'); end;
+  except on E: Exception do begin FTrayAvailable:=False; LogMsg('[BANDEJA ERRO] '+E.Message); end; end;
+end;
+procedure TMainForm.FileTransferMenuClick(Sender: TObject);
+var P: TPoint;
+begin P:=FBtnTransfer.ClientToScreen(Point(0,FBtnTransfer.Height)); FTransferMenu.Popup(P.X,P.Y); end;
+procedure TMainForm.QueueSelectedFiles(Sender: TObject; Paths: TStrings);
+begin
+  if (FClipboardThread=nil) or FClipboardThread.Finished or FStoppingSession then begin
+    ShowMessage('Conecte-se com permissao de area de transferencia antes de enviar arquivos.'); Exit;
+  end;
+  FClipboardThread.QueueFiles(Paths);
+  HandleStreamLog(Self,'[CLIPBOARD] Arquivos ou pasta selecionados. Preparando envio...');
+end;
+procedure TMainForm.ChooseFiles(Sender: TObject);
+var Dialog: TOpenDialog;
+begin
+  Dialog:=TOpenDialog.Create(Self);
+  try Dialog.Title:='Enviar arquivos para o outro computador'; Dialog.Options:=[ofAllowMultiSelect,ofFileMustExist,ofEnableSizing];
+    if Dialog.Execute then QueueSelectedFiles(Self,Dialog.Files);
+  finally Dialog.Free; end;
+end;
+procedure TMainForm.ChooseFolder(Sender: TObject);
+var Folder: string; Paths: TStringList;
+begin
+  Paths:=TStringList.Create; Folder:='';
+  try if SelectDirectory('Enviar pasta para o outro computador','',Folder) then begin Paths.Add(Folder); QueueSelectedFiles(Self,Paths); end;
+  finally Paths.Free; end;
+end;
+procedure TMainForm.OpenReceivedFiles(Sender: TObject);
+var Folder: string;
+begin
+  Folder:=''; if FClipboardThread<>nil then Folder:=FClipboardThread.ReceivedDirectory;
+  if (Folder='') or not DirectoryExists(Folder) then ShowMessage('Nenhum arquivo recebido nesta sessao ainda.')
+  else OpenDocument(Folder);
+end;
 
 procedure TMainForm.WndProc(var TheMessage: TLMessage);
 begin
@@ -620,7 +687,7 @@ var
   NeedsElev: Boolean;
 begin
   inherited CreateNew(AOwner);
-  Caption := 'MaurinDesk v0.6.5 — Conexão Remota Assistida';
+  Caption := 'MaurinDesk v0.6.6 — Conexão Remota Assistida';
   SetBounds(100, 60, 1220, 840);
   Constraints.MinWidth := 1000;
   Constraints.MinHeight := 700;
@@ -678,7 +745,7 @@ begin
   ApplyLanguage;
 
   // Initial Log messages
-  LogMsg('MaurinDesk v0.6.5 (Build 2026-11-14) inicializado.');
+  LogMsg('MaurinDesk v0.6.6 (Build 2026-11-14) inicializado.');
   LogMsg('Servidor configurado: ' + FURL);
   LogMsg('Perfil local: ' + FProfile);
 
@@ -886,6 +953,7 @@ end;
 
 procedure TMainForm.Tick(Sender: TObject);
 begin
+  if not FTrayAvailable then InitializeTrayIcon;
   if FToken <> '' then
     Start(opPoll);
 end;
@@ -946,6 +1014,8 @@ begin
   FWorker.AllowLocal := FAllowLocal;
   FWorker.Control := True;
   FWorker.StreamPort := FStreamPort;
+  FWorker.CloseReason:=FRequestedCloseReason;
+  if FWorker.CloseReason='' then FWorker.CloseReason:='local_stop';
   if Operation = opPoll then
     FWorker.SessionId := FSessionId;
 
@@ -965,10 +1035,18 @@ end;
 procedure TMainForm.Finished(W: TAPIWorker);
 var
   A, Grants, Events: TJSONArray;
-  J, CommObj, HostObj, RequesterObj, LastEvent: TJSONObject;
+  J, CommObj, HostObj, RequesterObj, LastEvent, ClosedBy: TJSONObject;
   State, ReqKey, ReqName, CommStatus: string;
   I: Integer;
 begin
+  // Diagnostic uploads are independent workers and must not release the session worker's busy state.
+  if W.Operation=opSendLog then begin
+    if not FClosing then begin
+      if W.Failure<>'' then LogMsg('[DIAGNOSTICO ERRO] '+W.Failure)
+      else LogMsg('[DIAGNOSTICO] Relatorio enviado.');
+    end;
+    Exit;
+  end;
   FBusy := False;
   if FClosing then Exit;
 
@@ -1075,6 +1153,7 @@ begin
                   FSessionCanControl := True;
             FRemoteViewer := TfRemoteViewer.CreateViewer(Self, FTarget.Text, FSessionCanControl, nil);
             FRemoteViewer.OnCloseSession := @ViewerClosed;
+            FRemoteViewer.OnSendFiles:=@QueueSelectedFiles; FRemoteViewer.OnOpenReceived:=@OpenReceivedFiles;
             FRemoteViewer.Show;
             LogMsg('[VIEWER] Janela do visualizador remoto aberta!');
 
@@ -1102,6 +1181,9 @@ begin
         end;
 
         if (State = 'closed') or (State = 'expired') or (State = 'rejected') or (State = 'cancelled') then begin
+          ClosedBy:=TJSONObject(J.Find('closed_by'));
+          if ClosedBy<>nil then LogMsg('[SESSAO ENCERRADA] Origem='+ClosedBy.Get('role','')+' | motivo='+J.Get('reason',''))
+          else LogMsg('[SESSAO ENCERRADA] Estado='+State+' | motivo='+J.Get('reason','nao informado pela API'));
           FSessionId := '';
           FIsController := False;
           FActiveSessionPanel.Visible := False;
@@ -1229,6 +1311,7 @@ end;
 
 procedure TMainForm.StopClick(Sender: TObject);
 begin
+  FRequestedCloseReason:='stop_button';
   FStoppingSession:=True;
   StopStreaming;
   if FSessionId <> '' then begin
@@ -1239,6 +1322,8 @@ end;
 
 procedure TMainForm.ViewerClosed(Sender: TObject);
 begin
+  FRequestedCloseReason:=TfRemoteViewer(Sender).CloseReason;
+  LogMsg('[VIEWER ENCERRADO] Motivo='+FRequestedCloseReason);
   FStoppingSession:=True;
   TfRemoteViewer(Sender).DetachClients;
   LogMsg('[VIEWER] Janela do visualizador foi fechada.');
@@ -1250,6 +1335,9 @@ end;
 
 procedure TMainForm.StopStreaming;
 begin
+  if FStoppingStreams then Exit;
+  FStoppingStreams:=True;
+  try
   if FClipboardThread <> nil then begin
     FClipboardThread.Terminate;
     FClipboardThread.WaitFor;
@@ -1282,6 +1370,7 @@ begin
     FRelayHost.WaitFor;
     FreeAndNil(FRelayHost);
   end;
+  finally FStoppingStreams:=False; end;
 end;
 
 procedure TMainForm.StartClipboard(Session: TJSONObject);
@@ -1325,9 +1414,15 @@ begin
 end;
 
 procedure TMainForm.HandleStreamLog(Sender: TObject; const Msg: string);
+var ClipText: string; P: Integer;
 begin
   LogMsg(Msg);
-  if Pos('[CLIPBOARD]',Msg)>0 then FDiscSubtitle.Caption:=Copy(Msg,13,MaxInt);
+  if Pos('[CLIPBOARD',Msg)=1 then begin
+    P:=Pos('] ',Msg); if P>0 then ClipText:=Copy(Msg,P+2,MaxInt) else ClipText:=Msg;
+    if Pos('[CLIPBOARD ERRO]',Msg)=1 then ClipText:='Falha na transferencia: '+ClipText;
+    FDiscSubtitle.Caption:=ClipText; FDiscSubtitle.Hint:=ClipText; FDiscSubtitle.ShowHint:=True;
+    if FRemoteViewer<>nil then FRemoteViewer.SetTransferStatus(ClipText);
+  end;
   if (Pos('[STREAM CLIENT ERRO]', Msg) > 0) or (Pos('Falha ao conectar', Msg) > 0) or
     (Pos('[PONTE CLIENTE ERRO]', Msg) > 0) then begin
     SendFailureLogToServer('STREAM_ERROR', Msg);
@@ -1617,12 +1712,13 @@ type
 
 constructor TQuickCloseThread.Create(const AURL, AToken, ASessionId: string; AAllowLocal: Boolean);
 begin
-  inherited Create(False);
+  inherited Create(True);
   FreeOnTerminate := True;
   FURL := AURL;
   FToken := AToken;
   FSessionId := ASessionId;
   FAllowLocal := AAllowLocal;
+  Start;
 end;
 
 procedure TQuickCloseThread.Execute;
@@ -1649,7 +1745,7 @@ procedure TMainForm.Closing(Sender: TObject; var CanClose: Boolean);
 var
   CloseSessionId: string;
 begin
-  if not FExitRequested and (FSetMain<>nil) and FSetMain.MinimizeToTray then begin
+  if not FExitRequested and FTrayAvailable and (FSetMain<>nil) and FSetMain.MinimizeToTray then begin
     CanClose:=False; Hide; Exit;
   end;
   FClosing := True;

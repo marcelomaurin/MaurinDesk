@@ -5,10 +5,11 @@ unit uRemoteViewer;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Graphics, ExtCtrls, StdCtrls, Buttons,
+  Classes, SysUtils, Forms, Controls, Graphics, ExtCtrls, StdCtrls, Buttons, Dialogs, Menus,
   uDeskStream, uDeskRelay, uDeskProtocol, uDeskI18n;
 
 type
+  TSendFilesEvent = procedure(Sender: TObject; Paths: TStrings) of object;
   { Janela do visualizador da área de trabalho remota }
   TfRemoteViewer = class(TForm)
   private
@@ -17,6 +18,14 @@ type
     FRemoteBmp: TBitmap;
     FTopBar: TPanel;
     FPaintBox: TPaintBox;
+    FInputSurface: TPanel;
+    FPressedKeys: array[0..255] of Boolean;
+    FBtnFiles: TSpeedButton;
+    FFilesMenu: TPopupMenu;
+    FTransferStatus: TLabel;
+    FOnSendFiles: TSendFilesEvent;
+    FOnOpenReceived: TNotifyEvent;
+    FCloseReason: string;
     FStatusLabel: TLabel;
     FFPSLabel: TLabel;
     FBtnFit: TSpeedButton;
@@ -36,6 +45,13 @@ type
     procedure PaintBoxMouseWheel(Sender: TObject; Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure FormKeyUp(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure ViewerShown(Sender: TObject);
+    procedure ViewerDeactivated(Sender: TObject);
+    procedure ReleaseRemoteKeys;
+    procedure FilesMenuClick(Sender: TObject);
+    procedure SendFilesClick(Sender: TObject);
+    procedure SendFolderClick(Sender: TObject);
+    procedure OpenReceivedClick(Sender: TObject);
     procedure BtnFitClick(Sender: TObject);
     procedure BtnFullScreenClick(Sender: TObject);
     procedure BtnDisconnectClick(Sender: TObject);
@@ -51,17 +67,23 @@ type
     procedure DetachClients;
     procedure SetPortConnected(APort: Integer);
     procedure SetErrorMessage(const Msg: string);
+    procedure SetTransferStatus(const Msg: string);
+    property OnSendFiles: TSendFilesEvent read FOnSendFiles write FOnSendFiles;
+    property OnOpenReceived: TNotifyEvent read FOnOpenReceived write FOnOpenReceived;
+    property CloseReason: string read FCloseReason;
     property OnCloseSession: TNotifyEvent read FOnCloseSession write FOnCloseSession;
   end;
 
 implementation
 
 constructor TfRemoteViewer.CreateViewer(AOwner: TComponent; const ARemoteKey: string; ACanControl: Boolean; AStreamClient: TDeskStreamClient);
+var Item: TMenuItem;
 begin
   inherited CreateNew(AOwner);
 
   FRemoteKey := ARemoteKey;
   FCanControl := ACanControl;
+  FCloseReason:='viewer_window_closed';
   FStreamClient := AStreamClient;
   FFitToWindow := True;
   FFrameCount := 0;
@@ -126,10 +148,23 @@ begin
   FBtnDisconnect.Font.Color := clRed;
   FBtnDisconnect.Font.Style := [fsBold];
   FBtnDisconnect.OnClick := @BtnDisconnectClick;
+  FBtnDisconnect.TabStop:=False; FBtnDisconnect.Default:=False; FBtnDisconnect.Cancel:=False;
+
+  FFilesMenu:=TPopupMenu.Create(Self);
+  Item:=TMenuItem.Create(FFilesMenu); Item.Caption:='Enviar arquivos...'; Item.OnClick:=@SendFilesClick; FFilesMenu.Items.Add(Item);
+  Item:=TMenuItem.Create(FFilesMenu); Item.Caption:='Enviar pasta...'; Item.OnClick:=@SendFolderClick; FFilesMenu.Items.Add(Item);
+  Item:=TMenuItem.Create(FFilesMenu); Item.Caption:='Abrir arquivos recebidos'; Item.OnClick:=@OpenReceivedClick; FFilesMenu.Items.Add(Item);
+  FBtnFiles:=TSpeedButton.Create(Self); FBtnFiles.Parent:=FTopBar; FBtnFiles.SetBounds(790,7,150,28);
+  FBtnFiles.Caption:='Arquivos e pastas'; FBtnFiles.OnClick:=@FilesMenuClick;
+  FTransferStatus:=TLabel.Create(Self); FTransferStatus.Parent:=Self; FTransferStatus.Align:=alBottom;
+  FTransferStatus.AutoSize:=False; FTransferStatus.Height:=28; FTransferStatus.Font.Color:=clWhite;
+  FTransferStatus.Caption:='Arquivos: copie com Ctrl+C ou use "Arquivos e pastas".';
 
   // Área central de renderização
+  FInputSurface:=TPanel.Create(Self); FInputSurface.Parent:=Self; FInputSurface.Align:=alClient;
+  FInputSurface.BevelOuter:=bvNone; FInputSurface.Color:=Color; FInputSurface.TabStop:=True;
   FPaintBox := TPaintBox.Create(Self);
-  FPaintBox.Parent := Self;
+  FPaintBox.Parent := FInputSurface;
   FPaintBox.Align := alClient;
   FPaintBox.OnPaint := @PaintBoxPaint;
   FPaintBox.OnMouseMove := @PaintBoxMouseMove;
@@ -139,6 +174,7 @@ begin
 
   OnKeyDown := @FormKeyDown;
   OnKeyUp := @FormKeyUp;
+  OnShow:=@ViewerShown; OnDeactivate:=@ViewerDeactivated;
 
   if FStreamClient <> nil then
     FStreamClient.OnFrame := @HandleFrameReceived;
@@ -172,6 +208,7 @@ end;
 
 procedure TfRemoteViewer.DetachClients;
 begin
+  ReleaseRemoteKeys;
   if FRelayClient<>nil then FRelayClient.OnFrame:=nil;
   if FStreamClient<>nil then FStreamClient.OnFrame:=nil;
   FRelayClient:=nil; FStreamClient:=nil;
@@ -187,6 +224,7 @@ end;
 
 procedure TfRemoteViewer.DoClose(var CloseAction: TCloseAction);
 begin
+  ReleaseRemoteKeys;
   if Assigned(FOnCloseSession) then
     FOnCloseSession(Self);
   CloseAction := caFree;
@@ -351,6 +389,7 @@ var
   NormX, NormY: Word;
   BtnCode: Byte;
 begin
+  if FInputSurface.CanFocus then FInputSurface.SetFocus;
   if not FCanControl then Exit;
   if ScreenToRemote(X, Y, NormX, NormY) then
   begin
@@ -402,21 +441,65 @@ end;
 
 procedure TfRemoteViewer.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
-  if not FCanControl then Exit;
+  if ActiveControl<>FInputSurface then Exit;
+  if not FCanControl then begin Key:=0; Exit; end;
+  if Key<=High(FPressedKeys) then FPressedKeys[Key]:=True;
   if FRelayClient <> nil then
     FRelayClient.SendKey(Key, True)
   else if FStreamClient <> nil then
     FStreamClient.SendKeyEvent(Key, True);
+  Key:=0; // A remote Enter/space/Tab must never activate a local toolbar button.
 end;
 
 procedure TfRemoteViewer.FormKeyUp(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
-  if not FCanControl then Exit;
+  if ActiveControl<>FInputSurface then Exit;
+  if not FCanControl then begin Key:=0; Exit; end;
+  if Key<=High(FPressedKeys) then FPressedKeys[Key]:=False;
   if FRelayClient <> nil then
     FRelayClient.SendKey(Key, False)
   else if FStreamClient <> nil then
     FStreamClient.SendKeyEvent(Key, False);
+  Key:=0;
 end;
+
+procedure TfRemoteViewer.ViewerShown(Sender: TObject);
+begin ActiveControl:=FInputSurface; if FInputSurface.CanFocus then FInputSurface.SetFocus; end;
+procedure TfRemoteViewer.ViewerDeactivated(Sender: TObject);
+begin ReleaseRemoteKeys; end;
+procedure TfRemoteViewer.ReleaseRemoteKeys;
+var K: Integer;
+begin
+  for K:=0 to High(FPressedKeys) do if FPressedKeys[K] then begin
+    if FRelayClient<>nil then FRelayClient.SendKey(K,False)
+    else if FStreamClient<>nil then FStreamClient.SendKeyEvent(K,False);
+    FPressedKeys[K]:=False;
+  end;
+end;
+procedure TfRemoteViewer.SetTransferStatus(const Msg: string);
+begin FTransferStatus.Caption:=Msg; end;
+procedure TfRemoteViewer.FilesMenuClick(Sender: TObject);
+var P: TPoint;
+begin ReleaseRemoteKeys; P:=FBtnFiles.ClientToScreen(Point(0,FBtnFiles.Height)); FFilesMenu.PopUp(P.X,P.Y); end;
+procedure TfRemoteViewer.SendFilesClick(Sender: TObject);
+var Dialog: TOpenDialog;
+begin
+  if not Assigned(FOnSendFiles) then Exit;
+  Dialog:=TOpenDialog.Create(Self);
+  try Dialog.Title:='Enviar arquivos para o outro computador'; Dialog.Options:=[ofAllowMultiSelect,ofFileMustExist,ofEnableSizing];
+    if Dialog.Execute then FOnSendFiles(Self,Dialog.Files);
+  finally Dialog.Free; ViewerShown(Self); end;
+end;
+procedure TfRemoteViewer.SendFolderClick(Sender: TObject);
+var Folder: string; Paths: TStringList;
+begin
+  if not Assigned(FOnSendFiles) then Exit;
+  Folder:=''; Paths:=TStringList.Create;
+  try if SelectDirectory('Enviar pasta para o outro computador','',Folder) then begin Paths.Add(Folder); FOnSendFiles(Self,Paths); end;
+  finally Paths.Free; ViewerShown(Self); end;
+end;
+procedure TfRemoteViewer.OpenReceivedClick(Sender: TObject);
+begin if Assigned(FOnOpenReceived) then FOnOpenReceived(Self); ViewerShown(Self); end;
 
 procedure TfRemoteViewer.BtnFitClick(Sender: TObject);
 begin
@@ -445,6 +528,7 @@ end;
 
 procedure TfRemoteViewer.BtnDisconnectClick(Sender: TObject);
 begin
+  FCloseReason:='viewer_disconnect_button';
   Close;
 end;
 

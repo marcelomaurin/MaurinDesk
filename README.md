@@ -1,10 +1,10 @@
 # MaurinDesk
 
-**Versão 0.6.5:** novo layout, clipboard bidirecional de texto e arquivos, nomes no histórico, configurações em `fsetmain`, instalação por usuário, área do relógio e atualização automática pelo GitHub. Executável: [bin/MaurinDesk.exe](bin/MaurinDesk.exe). Veja [como usar e atualizar](docs/14-recursos-desktop.md).
+**Versão 0.6.6:** ícone próprio na área do relógio, correção de desconexão por Enter/espaço e comandos para enviar arquivos/pastas e abrir os recebidos. Mantém layout moderno, clipboard bidirecional, histórico, `fsetmain`, instalação e atualização pelo GitHub. Executável: [bin/MaurinDesk.exe](bin/MaurinDesk.exe). Veja [como usar e atualizar](docs/14-recursos-desktop.md).
 
 Acesso remoto assistido, inspirado no fluxo de uso do AnyDesk, com cliente desktop Lazarus/Free Pascal nativo e servidor PHP exclusivamente de APIs e sinalização/relay.
 
-**Estado atual (v0.6.5):** transmissão de tela e controle autenticado por HTTPS Relay/P2P, clipboard de texto e arquivos após consentimento, histórico com apelidos e atualização verificada por SHA-256. O nome distribuído é sempre `MaurinDesk.exe`.
+**Estado atual (v0.6.6):** transmissão de tela e controle autenticado por HTTPS Relay/P2P, clipboard e envio de arquivos/pastas após consentimento, histórico com apelidos e atualização verificada por SHA-256. O nome distribuído é sempre `MaurinDesk.exe`.
 
 ## Funcionamento
 
@@ -26,7 +26,7 @@ Acesso remoto assistido, inspirado no fluxo de uso do AnyDesk, com cliente deskt
 
 ## Servidor Atualizado
 
-Servidor oficial: `https://maurinsoft.com.br/MaurinDesk/api/`. Copie os arquivos da pasta `server/api/` para `public_html/MaurinDesk/api/`, preservando o `.env`. As migrações (`0.1` a `0.7`) são automáticas e idempotentes. A versão `0.7` da API é necessária para o clipboard.
+Servidor oficial: `https://maurinsoft.com.br/MaurinDesk/api/`. Copie os arquivos da pasta `server/api/` para `public_html/MaurinDesk/api/`, preservando o `.env`. As migrações (`0.1` a `0.8`) são automáticas e idempotentes. O clipboard básico requer esquema `0.7`; a confirmação de recebimento usa `0.8`.
 
 Veja também o [mapeamento do banco para a interface](docs/12-banco-interface.md).
 

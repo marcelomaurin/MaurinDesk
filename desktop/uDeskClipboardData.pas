@@ -195,6 +195,8 @@ begin
       if Length(Text) > CLIP_MAX_TEXT then raise Exception.Create('Texto excede o limite de 1 MiB');
       Result := True;
     end;
+    // GetClipboardData may render a delayed format and advance the sequence while the clipboard is locked.
+    if Result then Sequence:=GetClipboardSequenceNumber;
   finally CloseClipboard; end;
 end;
 

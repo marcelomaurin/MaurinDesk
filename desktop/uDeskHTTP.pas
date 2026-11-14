@@ -7,6 +7,7 @@ function DeskAPIRequest(const BaseURL, Token: string; AllowLocal: Boolean;
 function DeskRequestSession(const URL, Token, Key: string; AllowLocal, Control: Boolean): TJSONObject;
 function DeskAcceptControl(const URL, Token, Id: string; AllowLocal: Boolean; Requested: TJSONArray): TJSONObject;
 function DeskGetJSON(const URL: string): TJSONObject;
+function DeskHeartbeat(const URL, Token, Version: string; AllowLocal: Boolean): TJSONObject;
 procedure DeskDownloadFile(const URL, Target: string; MaxBytes: Int64);
 implementation
 uses Windows, jsonparser, airemoteidentity, airemotesignaling;
@@ -110,6 +111,13 @@ begin
   J := GetJSON(Raw);
   if not (J is TJSONObject) then begin J.Free; raise Exception.Create('JSON de atualizacao invalido'); end;
   Result := TJSONObject(J);
+end;
+
+function DeskHeartbeat(const URL, Token, Version: string; AllowLocal: Boolean): TJSONObject;
+var B: TJSONObject;
+begin
+  B:=TJSONObject.Create(['app_version',Version]);
+  try Result:=DeskAPIRequest(URL,Token,AllowLocal,'POST','/devices/heartbeat',B); finally B.Free; end;
 end;
 
 procedure DeskDownloadFile(const URL, Target: string; MaxBytes: Int64);

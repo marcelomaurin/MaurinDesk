@@ -8,6 +8,8 @@ callApi('POST','/devices/heartbeat',[],$host); callApi('POST','/devices/heartbea
 $cid=$r['data']['id']; $clip='/sessions/'.$cid.'/clipboard';
 [$st]=callApi('GET',$clip,[],$client); check($st===403,'clipboard requires consent');
 callApi('POST','/sessions/'.$cid.'/decision',['decision'=>'accept','granted_permissions'=>['screen.view','clipboard.sync']],$host);
+callApi('POST','/devices/heartbeat',['app_version'=>'0.6.6'],$host);
+check($db->query("SELECT app_version FROM devices WHERE id='".$host['device_id']."'")->fetchColumn()==='0.6.6','heartbeat refreshes installed app version');
 [$st,$r]=callApi('GET',$clip,[],$host); check($st===200 && $r['data']['status']==='empty','new clipboard empty');
 [$st]=callApi('GET',$clip,[],$other); check($st===404,'third party cannot read clipboard');
 foreach ([['kind'=>'image','total_bytes'=>1,'checksum'=>sha1('x')],
@@ -29,6 +31,10 @@ $id=clipboardSend($clip,$client,$raw);
 [$st,$r]=callApi('GET',$clip,[],$host); check($st===200 && $r['data']['id']===$id,'host receives controller clipboard');
 [$st,$r]=callApi('GET',$clip.'/'.$id.'/0',[],$host);
 check($st===200 && base64_decode($r['data']['data'])===$raw,'Unicode text preserved exactly');
+[$st,$r]=callApi('GET',$clip.'/'.$id,[],$client); check($st===200 && $r['data']['status']==='ready','upload is not yet a receipt');
+[$st]=callApi('POST',$clip.'/'.$id,['received'=>true],$client); check($st===403,'sender cannot confirm its own delivery');
+[$st,$r]=callApi('POST',$clip.'/'.$id,['received'=>true],$host); check($st===200 && $r['data']['status']==='received','receiver confirms local clipboard readiness');
+[$st,$r]=callApi('GET',$clip.'/'.$id,[],$client); check($r['data']['status']==='received','sender observes actual receipt');
 [$st]=callApi('POST',$clip.'/'.$id.'/0',['data'=>base64_encode('changed')],$host);
 check($st===403,'receiver cannot change sender content');
 $back=clipboardSend($clip,$host,'Resposta do host');
@@ -45,6 +51,8 @@ check($st===200 && base64_decode($r['data']['data'])===substr($binary,ClipboardD
 [$st]=callApi('POST',$clip.'/'.$bad.'/0',['data'=>base64_encode('abc')],$client); check($st===409,'changing an existing chunk rejected');
 [$st]=callApi('POST',$clip.'/'.$bad,[],$client); check($st===409,'wrong final checksum rejected');
 callApi('POST','/sessions/'.$cid.'/close',['reason'=>'done'],$host);
+[$st,$r]=callApi('GET','/sessions/'.$cid,[],$client);
+check($r['data']['closed_by']['role']==='host' && $r['data']['reason']==='done','closure reports actor and reason to peer');
 check((int)$db->query('SELECT COUNT(*) FROM clipboard_transfers')->fetchColumn()===0,'clipboard content removed on close');
 check((int)$db->query('SELECT COUNT(*) FROM clipboard_chunks')->fetchColumn()===0,'clipboard chunks cascade on close');
 [$st]=callApi('GET',$clip,[],$client); check($st===403,'closed session cannot access clipboard');

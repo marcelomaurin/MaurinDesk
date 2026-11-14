@@ -1,5 +1,17 @@
 # MaurinDesk 0.6.5
 
+## Atualização 0.6.6
+
+Usar **Arquivos e pastas** no visualizador ou na janela principal para **Enviar arquivos...**, **Enviar pasta...** ou **Abrir arquivos recebidos**. Os envios explícitos não precisam alterar o clipboard local. O Ctrl+C/Ctrl+V continua disponível nos dois sentidos.
+
+O envio ao servidor e o recebimento no destino são estados diferentes. Com a API 0.8 e os dois aplicativos em 0.6.6, o destino confirma somente após preparar a área de transferência; o remetente então mostra **Recebimento confirmado**. Arquivos recebidos também podem ser acessados pelo menu, mesmo que se prefira copiá-los manualmente do cache. Com versões antigas, a transferência básica continua disponível, mas o remetente não presume que o download tenha terminado.
+
+A migração para 0.8 é automática ao publicar `server/api`, preservando o `.env`. Não basta enviar os arquivos ao GitHub para atualizar a hospedagem PHP.
+
+Foi reproduzido que Enter podia ativar o botão local “Desconectar” na 0.6.5. A 0.6.6 mantém o foco na área remota e consome essas teclas. Os logs passam a registrar o autor do encerramento (`host` ou `controller`) e o motivo, distinguindo botão de desconectar, fechamento do visualizador e encerramento do aplicativo. O log antigo com `state=closed` não identifica sozinho qual gesto causou o fechamento.
+
+O ícone próprio está incorporado em vários tamanhos. Se o Windows não confirmar sua criação, a janela não é escondida ao fechar/minimizar; o aplicativo registra o motivo e tenta novamente. Clique no ícone para abrir o programa.
+
 ## Atualização inicial
 
 1. Publicar todo o conteúdo de `server/api/` na hospedagem, preservando o `.env`. O banco migra automaticamente para `0.7`, incluindo as tabelas do clipboard.

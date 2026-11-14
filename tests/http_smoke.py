@@ -61,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix="maurindesk-http-") as temp:
             assert headers.get("Cache-Control") == "no-store"
             print("OK", name, status)
         status, body, _ = request(base.rsplit("/v1", 1)[0] + "/")
-        assert status == 200 and body["data"]["version"] == "0.7"
+        assert status == 200 and body["data"]["version"] == "0.8"
         print("OK server root health and initial version")
         status, body, _ = request("/devices", json.dumps({
             "registration_id": "12345678-1234-4234-8234-123456789abc",
@@ -113,6 +113,10 @@ with tempfile.TemporaryDirectory(prefix="maurindesk-http-") as temp:
         assert status == 200 and body["data"]["status"] == "ready", body
         status, body, _ = authenticated(f"{clip}/{transfer}/0", device)
         assert status == 200 and base64.b64decode(body["data"]["data"]) == raw, body
+        status, body, _ = authenticated(f"{clip}/{transfer}", device, {"received": True})
+        assert status == 200 and body["data"]["status"] == "received", body
+        status, body, _ = authenticated(f"{clip}/{transfer}", controller)
+        assert status == 200 and body["data"]["status"] == "received", body
         print("OK clipboard consent, chunk upload, commit and download via HTTP")
         print("HTTP boundary tests passed")
     finally:

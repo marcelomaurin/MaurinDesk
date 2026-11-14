@@ -22,8 +22,8 @@ final class ClipboardData {
             $row=$this->run('SELECT id,kind,total_bytes,checksum,chunk_count FROM clipboard_transfers
                 WHERE session_id=? AND sender_id<>? AND ready=1 ORDER BY updated_at DESC,id DESC LIMIT 1',
                 [$session['id'],$actor])->fetch(PDO::FETCH_ASSOC);
-            if (!$row) return ['status'=>'empty'];
-            return ['status'=>'ready','id'=>$row['id'],'kind'=>$row['kind'],'total_bytes'=>(int)$row['total_bytes'],
+            if (!$row) return ['status'=>'empty','protocol_version'=>2];
+            return ['status'=>'ready','protocol_version'=>2,'id'=>$row['id'],'kind'=>$row['kind'],'total_bytes'=>(int)$row['total_bytes'],
                 'checksum'=>$row['checksum'],'chunk_count'=>(int)$row['chunk_count']];
         }
         if ($id===null && $method==='POST') {
@@ -36,10 +36,22 @@ final class ClipboardData {
             $id=Api::uuid(); $count=max(1,(int)ceil($size/self::CHUNK_BYTES));
             $this->run('INSERT INTO clipboard_transfers(id,session_id,sender_id,kind,total_bytes,checksum,chunk_count,ready,created_at,updated_at)
                 VALUES(?,?,?,?,?,?,?,0,?,?)',[$id,$session['id'],$actor,$kind,$size,$hash,$count,$this->now,$this->now]);
-            return ['id'=>$id,'chunk_count'=>$count,'chunk_bytes'=>self::CHUNK_BYTES];
+            $peer=$session['host_id']===$actor?$session['requester_id']:$session['host_id'];
+            $version=(string)$this->run('SELECT app_version FROM devices WHERE id=?',[$peer])->fetchColumn();
+            return ['id'=>$id,'chunk_count'=>$count,'chunk_bytes'=>self::CHUNK_BYTES,'protocol_version'=>2,
+                'peer_receipts'=>version_compare($version,'0.6.6','>=')];
         }
         $t=$id===null?false:$this->run('SELECT * FROM clipboard_transfers WHERE id=? AND session_id=?',[$id,$session['id']])->fetch(PDO::FETCH_ASSOC);
         if (!$t) $this->fail(404,'Transferencia nao encontrada.');
+        if ($part===null && $method==='GET')
+            return ['id'=>$id,'status'=>$t['received_at']!==null?'received':((int)$t['ready']?'ready':'uploading'),
+                'received_at'=>$t['received_at']!==null?(int)$t['received_at']:null];
+        if ($part===null && $method==='POST' && ($body['received']??false)===true) {
+            if ($t['sender_id']===$actor || !(int)$t['ready']) $this->fail(403,'Apenas o destinatario confirma um recebimento concluido.');
+            $received=$t['received_at']!==null?(int)$t['received_at']:$this->now;
+            $this->run('UPDATE clipboard_transfers SET received_at=? WHERE id=?',[$received,$id]);
+            return ['id'=>$id,'status'=>'received','received_at'=>$received];
+        }
         if ($part!==null && ($part<0 || $part>=(int)$t['chunk_count'])) $this->fail(400,'Parte invalida.');
         if ($method==='GET' && $part!==null) {
             if ($t['sender_id']===$actor || !(int)$t['ready']) $this->fail(403,'Transferencia ainda nao disponivel.');
