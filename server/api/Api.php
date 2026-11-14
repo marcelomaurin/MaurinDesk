@@ -6,6 +6,7 @@ use PDO;
 use RuntimeException;
 use Throwable;
 require_once __DIR__.'/DesktopData.php';
+require_once __DIR__.'/ClipboardData.php';
 
 final class ApiError extends RuntimeException {
     public int $status;
@@ -69,8 +70,8 @@ final class Api {
         return $s;
     }
     private function permissions(mixed $value): array {
-        $allowed=['screen.view','input.mouse','input.keyboard'];
-        if (!is_array($value) || !array_is_list($value) || count($value)>3 ||
+        $allowed=['screen.view','input.mouse','input.keyboard','clipboard.sync'];
+        if (!is_array($value) || !array_is_list($value) || count($value)>4 ||
             !in_array('screen.view',$value,true) || count(array_unique($value,SORT_REGULAR))!==count($value))
             $this->fail(400,'VALIDATION_ERROR','Permissões inválidas.');
         foreach($value as $p) if (!is_string($p) || !in_array($p,$allowed,true))
@@ -136,6 +137,8 @@ final class Api {
                     [$this->now,$this->now]);
         $this->run('DELETE FROM idempotency WHERE expires_at<=?',[$this->now]);
         $this->run('DELETE FROM rate_limits WHERE expires_at<=?',[$this->now]);
+        $this->run("DELETE FROM clipboard_transfers WHERE updated_at<=? OR session_id IN
+            (SELECT id FROM sessions WHERE state IN ('closed','expired','cancelled','rejected'))",[$this->now-3600]);
     }
     private function authenticate(array $headers): array {
         $auth=$headers['authorization']??'';
@@ -504,6 +507,9 @@ final class Api {
                     [$device['id']])->fetchAll();
                 $data=['items'=>array_map(fn($s)=>$this->view($s),$rows),'server_time'=>gmdate('c',$this->now)];
                 foreach ($rows as $incoming) $this->auditOnce('session.delivered',$device['id'],$incoming['id']);
+            } elseif (preg_match('#^/sessions/([a-f0-9-]{36})/clipboard(?:/([a-f0-9-]{36})(?:/([0-9]{1,4}))?)?$#D',$path,$m)) {
+                $s=$this->session($m[1],$device['id']);
+                $data=(new ClipboardData($this->db,$this->now))->handle($method,$s,$device['id'],$body,$m[2]??null,isset($m[3])?(int)$m[3]:null);
             } elseif (preg_match('#^/sessions/([a-f0-9-]{36})(?:/(decision|cancel|close|peer|port|relay_frame|relay_input))?$#D',$path,$m)) {
                 $s=$this->session($m[1],$device['id']); $action=$m[2]??'';
                 if ($method==='GET' && $action==='') {
@@ -523,6 +529,7 @@ final class Api {
                         $reason=$this->text($body,'reason',80);
                         $this->run("UPDATE sessions SET state='closed',ended_at=?,reason=? WHERE id=?",[$this->now,$reason,$s['id']]);
                         $this->audit('session.closed',$device['id'],$s['id']);
+                        $this->run('DELETE FROM clipboard_transfers WHERE session_id=?',[$s['id']]);
                     }
                     $data=$this->view($this->session($s['id'],$device['id']));
                 } elseif ($method==='POST' && in_array($action,['decision','cancel'],true)) {

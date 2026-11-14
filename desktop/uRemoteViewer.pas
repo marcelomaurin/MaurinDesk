@@ -48,6 +48,7 @@ type
     constructor CreateViewer(AOwner: TComponent; const ARemoteKey: string; ACanControl: Boolean; AStreamClient: TDeskStreamClient);
     destructor Destroy; override;
     procedure SetRelayClient(ARelayClient: TDeskRelayClient);
+    procedure DetachClients;
     procedure SetPortConnected(APort: Integer);
     procedure SetErrorMessage(const Msg: string);
     property OnCloseSession: TNotifyEvent read FOnCloseSession write FOnCloseSession;
@@ -167,6 +168,13 @@ begin
     FFPSLabel.Font.Color := RGBToColor(59, 130, 246);
     FPaintBox.Invalidate;
   end;
+end;
+
+procedure TfRemoteViewer.DetachClients;
+begin
+  if FRelayClient<>nil then FRelayClient.OnFrame:=nil;
+  if FStreamClient<>nil then FStreamClient.OnFrame:=nil;
+  FRelayClient:=nil; FStreamClient:=nil;
 end;
 
 procedure TfRemoteViewer.SetPortConnected(APort: Integer);

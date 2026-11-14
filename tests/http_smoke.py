@@ -1,5 +1,8 @@
 """Boundary checks against the actual PHP front controller; no third-party packages."""
 import json
+import base64
+import hashlib
+import uuid
 import os
 from pathlib import Path
 import socket
@@ -58,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix="maurindesk-http-") as temp:
             assert headers.get("Cache-Control") == "no-store"
             print("OK", name, status)
         status, body, _ = request(base.rsplit("/v1", 1)[0] + "/")
-        assert status == 200 and body["data"]["version"] == "0.6"
+        assert status == 200 and body["data"]["version"] == "0.7"
         print("OK server root health and initial version")
         status, body, _ = request("/devices", json.dumps({
             "registration_id": "12345678-1234-4234-8234-123456789abc",
@@ -84,6 +87,33 @@ with tempfile.TemporaryDirectory(prefix="maurindesk-http-") as temp:
         assert status == 200 and body["data"]["favorites"][0]["alias"] == "Trabalho", body
         assert body["data"]["preferences"]["theme"] == "dark", body
         print("OK desktop dashboard loads saved card and preferences")
+        status, body, _ = request("/devices", json.dumps({
+            "registration_id": str(uuid.uuid4()), "registration_secret": "b" * 64,
+            "display_name": "HTTP controller", "platform": "test", "app_version": "0.6.5"}).encode())
+        assert status == 201, body
+        controller = body["data"]
+        def authenticated(path, who, data=None, method=None):
+            headers = {"Authorization": "Bearer " + who["device_token"], "Idempotency-Key": str(uuid.uuid4())}
+            return request(path, None if data is None else json.dumps(data).encode(), headers, method)
+        status, body, _ = authenticated("/sessions", controller, {
+            "target_key": device["public_key"], "requested_permissions": ["screen.view", "clipboard.sync"]})
+        assert status == 201, body
+        sid = body["data"]["id"]
+        status, body, _ = authenticated(f"/sessions/{sid}/decision", device, {
+            "decision": "accept", "granted_permissions": ["screen.view", "clipboard.sync"]})
+        assert status == 200, body
+        raw = "Olá — Unicode 漢字 😀".encode()
+        clip = f"/sessions/{sid}/clipboard"
+        status, body, _ = authenticated(clip, controller, {"kind": "text", "total_bytes": len(raw), "checksum": hashlib.sha1(raw).hexdigest()})
+        assert status == 200, body
+        transfer = body["data"]["id"]
+        status, body, _ = authenticated(f"{clip}/{transfer}/0", controller, {"data": base64.b64encode(raw).decode()})
+        assert status == 200, body
+        status, body, _ = authenticated(f"{clip}/{transfer}", controller, {})
+        assert status == 200 and body["data"]["status"] == "ready", body
+        status, body, _ = authenticated(f"{clip}/{transfer}/0", device)
+        assert status == 200 and base64.b64decode(body["data"]["data"]) == raw, body
+        print("OK clipboard consent, chunk upload, commit and download via HTTP")
         print("HTTP boundary tests passed")
     finally:
         server.terminate()

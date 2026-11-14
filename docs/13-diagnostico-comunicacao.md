@@ -1,13 +1,13 @@
 # Diagnóstico de comunicação — 0.6.3
 
-Atualização 0.6.4: quando os quadros são recebidos e decodificados, mas a imagem aparece preta, atualizar o host com `bin/MaurinDesk-0.6.4.exe`. Foi corrigido o cache de pixels da captura GDI antes da codificação JPEG, com teste nativo que reproduziu a falha. Recomenda-se atualizar os dois participantes.
+Atualização 0.6.4: quando os quadros são recebidos e decodificados, mas a imagem aparece preta, atualizar o host com `bin/MaurinDesk.exe`. Foi corrigido o cache de pixels da captura GDI antes da codificação JPEG, com teste nativo que reproduziu a falha. Recomenda-se atualizar os dois participantes.
 
 O estado `accepted` confirma que o PHP recebeu uma decisão de aceite do destino. Não confirma transmissão ou exibição de imagens.
 
 ## Atualização
 
 1. Copiar os arquivos atualizados de `server/api/` para `public_html/MaurinDesk/api/`, preservando o `.env` do servidor.
-2. Executar `bin/MaurinDesk-0.6.3.exe` nos dois computadores. A compilação gerou esse nome porque o executável padrão estava em uso. A identidade permanece no perfil existente.
+2. Fechar a versão anterior e executar `bin/MaurinDesk.exe` atualizado nos dois computadores. O nome é fixo; conferir a versão na interface e em `bin/manifest.json`. A identidade permanece no perfil existente.
 3. Solicitar e aceitar uma nova sessão. Conferir `[PHP COMUNICACAO]`, `[PHP REDE]` e `[PHP ETAPA]` nos logs dos dois computadores.
 
 As alterações estão preparadas localmente; não representam publicação no servidor.

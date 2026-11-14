@@ -7,7 +7,7 @@ use Throwable;
 
 /** Ordered migrations. VERSAO changes only after successful schema changes. */
 final class Schema {
-    public const VERSION='0.6';
+    public const VERSION='0.7';
     public static function migrate(PDO $db): void {
         // Fast path: se o banco já estiver na versão mais recente, não precisa travar nem verificar migrações a cada request
         try {
@@ -18,7 +18,8 @@ final class Schema {
                 $db->query('SELECT e.local_ip,f.frame_id,f.frame_data,i.event_data,p.current_port
                     FROM devices d,device_endpoints e,device_preferences pref,device_contacts c,
                     sessions s,session_relay_frames f,session_relay_inputs i,session_ports p,
-                    audit_events a,device_logs l,schema_migrations m,api_mutex mutex,idempotency idem,rate_limits r
+                    audit_events a,device_logs l,schema_migrations m,api_mutex mutex,idempotency idem,rate_limits r,
+                    clipboard_transfers ct,clipboard_chunks cc
                     WHERE 1=0');
                 return;
             }
@@ -73,6 +74,9 @@ final class Schema {
                 '0.6'=>['descricao'=>'Negociacao dinamica de portas P2P e servidor como ponte (relay)',
                     'repairable'=>true,
                     'files'=>$mysql ? ['007_session_relay.mysql.sql'] : ['007_session_relay.sqlite.sql']],
+                '0.7'=>['descricao'=>'Area de transferencia bidirecional de texto e arquivos por partes',
+                    'repairable'=>true,
+                    'files'=>$mysql ? ['008_clipboard.mysql.sql'] : ['008_clipboard.sqlite.sql']],
             ];
             foreach ($migrations as $version=>$migration) {
                 // Baseline CREATE IF NOT EXISTS also restores missing tables.

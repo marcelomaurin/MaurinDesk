@@ -1,10 +1,11 @@
 unit umain;
 {$mode objfpc}{$H+}
 interface
-uses Classes, SysUtils, DateUtils, Forms, Controls, StdCtrls, ExtCtrls, Dialogs,
+uses Classes, SysUtils, DateUtils, Forms, Controls, StdCtrls, ExtCtrls, Dialogs, LMessages,
   Graphics, Menus, Clipbrd, IniFiles, md5,
   fpjson, jsonparser, airemoteidentity, airemotesignaling,
-  uDeskProtocol, uScreenCapture, uDeskStream, uRemoteViewer, uDeskRelay, uDeskI18n, uDeskFirewall;
+  uDeskProtocol, uScreenCapture, uDeskStream, uRemoteViewer, uDeskRelay, uDeskI18n, uDeskFirewall,
+  uDeskHTTP, uDeskClipboard, uDeskUI, setmain, uDeskSettings, uDeskUpdate;
 
 type
   TMainForm = class;
@@ -41,13 +42,47 @@ type
     FStreamClient: TDeskStreamClient;
     FRelayClient: TDeskRelayClient;
     FRelayHost: TDeskRelayHost;
+    FClipboardThread: TDeskClipboardThread;
     FRemoteViewer: TfRemoteViewer;
     FIsController: Boolean;
     FSessionCanControl: Boolean;
     FHasPendingOp: Boolean;
     FPendingOp: TOperation;
     FPendingId: string;
+    FHeading, FIntro: TLabel;
+    FLocalDeskCard: TPanel;
+    FNavConnect, FNavFavorites, FNavHistory: TDeskButton;
+    FNavigation, FGridColumns: Integer;
+    FLogExpanded: Boolean;
+    FRecordedSession: string;
+    FTrayIcon: TTrayIcon;
+    FTrayMenu: TPopupMenu;
+    FExitRequested: Boolean;
+    FSetMain: TSetMain;
+    FUpdater: TDeskUpdateThread;
+    FUpdateTimer: TTimer;
+    FPendingUpdate, FPendingUpdateHash: string;
+    FSessionTargetKey: string;
+    FSessionWasAccepted: Boolean;
+    FStoppingSession: Boolean;
+    FNamePromptKey: string;
+    FLastIncomingId: string;
+    procedure BuildModernLayout;
+    procedure LayoutModern(Sender: TObject);
+    procedure NavigationClick(Sender: TObject);
+    procedure ToggleLog(Sender: TObject);
+    procedure TargetKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure RememberRemote;
+    procedure NameRemote;
+    procedure PromptRemoteName(Data: PtrInt);
+    procedure ProcessPendingOperation(Data: PtrInt);
+    procedure RestoreFromTray(Sender: TObject);
+    procedure ExitFromTray(Sender: TObject);
+    procedure WindowStateChanged(Sender: TObject);
+    procedure CheckUpdates(Sender: TObject);
+    procedure UpdateReady(Sender: TObject);
 
+  private
     // Header Controls
     FTopBar: TPanel;
     FLogoBox: TPaintBox;
@@ -56,8 +91,8 @@ type
     FTopSearchPanel: TPanel;
     FTopSearchEdit: TEdit;
     FTopConnectBtn: TPanel;
-    FBtnLang: TButton;
-    FBtnSettings: TButton;
+    FBtnLang: TDeskButton;
+    FBtnSettings: TDeskButton;
 
     // Sidebar Controls
     FSidebar: TPanel;
@@ -66,7 +101,7 @@ type
     FKeyBox: TPanel;
     FKeyIconBox: TPaintBox;
     FKeyTextLabel: TLabel;
-    FBtnRegister: TButton;
+    FBtnRegister: TDeskButton;
     FSidebarStatus: TLabel;
     FBannerPanel: TPanel;
     FBannerTitleLabel: TLabel;
@@ -82,8 +117,8 @@ type
     FRemoteTitle: TLabel;
     FRemoteSubtitle: TLabel;
     FTarget: TEdit;
-    FBtnConnect: TButton;
-    FBtnSaveFav: TButton;
+    FBtnConnect: TDeskButton;
+    FBtnSaveFav: TDeskButton;
 
     FDiscoveryCard: TPanel;
     FDiscTitle: TLabel;
@@ -98,23 +133,23 @@ type
     // Connection Consent & Session Panels
     FIncomingPanel: TPanel;
     FIncomingText: TLabel;
-    FBtnAcceptControl: TButton;
-    FBtnAcceptView: TButton;
-    FBtnReject: TButton;
+    FBtnAcceptControl: TDeskButton;
+    FBtnAcceptView: TDeskButton;
+    FBtnReject: TDeskButton;
     FIncomingIds: TStringList;
 
     FActiveSessionPanel: TPanel;
     FActiveSessionText: TLabel;
-    FBtnStop: TButton;
+    FBtnStop: TDeskButton;
 
     // Log Console Panel (Bottom)
     FLogPanel: TPanel;
     FLogHeader: TPanel;
     FLogTitleLabel: TLabel;
-    FBtnTestConn: TButton;
-    FBtnSendLog: TButton;
-    FBtnCopyLog: TButton;
-    FBtnClearLog: TButton;
+    FBtnTestConn: TDeskButton;
+    FBtnSendLog: TDeskButton;
+    FBtnCopyLog: TDeskButton;
+    FBtnClearLog: TDeskButton;
     FLogMemo: TMemo;
 
     // Status Bar
@@ -157,6 +192,7 @@ type
     procedure ViewerClosed(Sender: TObject);
     procedure StopStreaming;
     procedure StartRelayStreaming;
+    procedure StartClipboard(Session: TJSONObject);
     procedure HandleStreamLog(Sender: TObject; const Msg: string);
     procedure HandleFallbackToRelay(Sender: TObject);
     procedure HandlePortSuccess(Sender: TObject; APort: Integer);
@@ -168,6 +204,8 @@ type
     procedure RebuildFavoriteCards;
     procedure UpdateServerLabels;
     function FormatDeskKey(const Key: string): string;
+  protected
+    procedure WndProc(var TheMessage: TLMessage); override;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -177,6 +215,10 @@ var
   MainForm: TMainForm;
 
 implementation
+
+function DeskOption(const Value: string): Boolean;
+var I: Integer;
+begin Result := False; for I:=1 to ParamCount do if ParamStr(I)=Value then Exit(True); end;
 
 function FormatDeskKeyHelper(const Key: string): string;
 begin
@@ -261,7 +303,7 @@ begin
                 Identity.Get('registration_secret', ''),
                 GetEnvironmentVariable('COMPUTERNAME'),
                 'windows',
-                '0.6.4'
+                '0.6.5'
               );
             end;
             try
@@ -310,7 +352,7 @@ begin
           end;
         end;
 
-        opConnect: Data := C.RequestSession(RemoteKey, Control);
+        opConnect: Data := DeskRequestSession(URL, Token, RemoteKey, AllowLocal, Control);
         opAcceptView: begin
           Data := C.Decide(SessionId, True, False);
           try
@@ -320,7 +362,9 @@ begin
           end;
         end;
         opAcceptControl: begin
-          Data := C.Decide(SessionId, True, True);
+          J := C.GetSession(SessionId);
+          try Data := DeskAcceptControl(URL, Token, SessionId, AllowLocal, J.Arrays['requested_permissions']);
+          finally J.Free; end;
           try
             J := C.AnnounceEndpoint(StreamPort, 'tcp', GetLocalIPAddress);
             J.Free;
@@ -347,19 +391,239 @@ end;
 
 { TMainForm }
 
+procedure TMainForm.BuildModernLayout;
+  function Panel(Parent: TWinControl; Card: Boolean = False): TPanel;
+  begin
+    if Card then Result := TDeskCard.Create(Self) else Result := TPanel.Create(Self);
+    Result.Parent := Parent; Result.BevelOuter := bvNone;
+    Result.Color := clWhite; Result.ParentFont := True;
+  end;
+  function LabelAt(Parent: TWinControl; const Text: string; X,Y,W,H,Size: Integer; Bold: Boolean = False): TLabel;
+  begin
+    Result := TLabel.Create(Self); Result.Parent := Parent; Result.AutoSize := False;
+    Result.SetBounds(X,Y,W,H); Result.Caption := Text; Result.Font.Name := 'Segoe UI'; Result.Font.Size := Size;
+    Result.Font.Color := RGBToColor(37,44,57); Result.Transparent := True;
+    if Bold then Result.Font.Style := [fsBold];
+  end;
+  function ButtonAt(Parent: TWinControl; const Text: string; Handler: TNotifyEvent): TDeskButton;
+  begin Result := TDeskButton.Create(Self); Result.Parent := Parent; Result.Caption := Text; Result.OnClick := Handler; end;
+var Item: TMenuItem;
+begin
+  DoubleBuffered := True;
+  FTopBar := Panel(Self); FTopBar.Align := alTop; FTopBar.Height := 64;
+  FLogoBox := TPaintBox.Create(Self); FLogoBox.Parent := FTopBar; FLogoBox.SetBounds(20,14,36,36); FLogoBox.OnPaint := @DrawLogo;
+  FTabLabel := LabelAt(FTopBar,'MaurinDesk',66,16,220,36,18,True);
+  FServerStatusLabel := LabelAt(FTopBar,'Aguardando conexão ao servidor',600,23,280,24,10);
+  FServerStatusLabel.Font.Color := RGBToColor(107,117,133);
+  FBtnLang := ButtonAt(FTopBar,'PT',@BtnLangClick);
+  FBtnSettings := ButtonAt(FTopBar,'Configurações',@SettingsClick);
+  FTopSearchEdit := TEdit.Create(Self); FTopSearchEdit.Parent := FTopBar; FTopSearchEdit.Visible := False;
+  FStatusBar := Panel(Self); FStatusBar.Align := alBottom; FStatusBar.Height := 30;
+  FStatusDot := LabelAt(FStatusBar,'●',16,8,16,16,9); FStatusDot.Font.Color := RGBToColor(34,170,85);
+  FStatusMsgLabel := LabelAt(FStatusBar,'Pronto para conectar.',36,8,950,18,9);
+  FSidebar := Panel(Self); FSidebar.Align := alLeft; FSidebar.Width := 196;
+  FNavConnect := ButtonAt(FSidebar,'Conexões',@NavigationClick); FNavConnect.Tag := 0;
+  FNavFavorites := ButtonAt(FSidebar,'Favoritos',@NavigationClick); FNavFavorites.Tag := 1;
+  FNavHistory := ButtonAt(FSidebar,'Histórico',@NavigationClick); FNavHistory.Tag := 2;
+  FNavConnect.SetBounds(16,28,164,46); FNavFavorites.SetBounds(16,84,164,46); FNavHistory.SetBounds(16,140,164,46);
+  FNavConnect.Selected := True;
+  FBannerPanel := Panel(FSidebar); FBannerPanel.Align := alBottom; FBannerPanel.Height := 100;
+  FBannerTitleLabel := LabelAt(FBannerPanel,'MaurinDesk',20,12,160,22,11,True);
+  FBannerBuildLabel := LabelAt(FBannerPanel,'v0.6.5',20,36,160,20,9);
+  FBannerWebLabel := LabelAt(FBannerPanel,'maurinsoft.com.br',20,61,160,20,9);
+  FBannerWebLabel.Font.Color := RGBToColor(126,135,151);
+  FContentArea := Panel(Self); FContentArea.Align := alClient; FContentArea.Color := RGBToColor(248,249,252);
+  FHeading := LabelAt(FContentArea,'Conecte-se com facilidade',28,22,850,42,23,True);
+  FIntro := LabelAt(FContentArea,'Acesse outro computador ou compartilhe o seu com segurança.',28,68,850,24,10);
+  FIntro.Font.Color := RGBToColor(107,117,133);
+  FTopCardsPanel := Panel(FContentArea); FTopCardsPanel.Color := FContentArea.Color;
+  FLocalDeskCard := Panel(FTopCardsPanel,True);
+  FDeskTitle := LabelAt(FLocalDeskCard,'Este computador',20,18,300,30,15,True);
+  FSidebarStatus := LabelAt(FLocalDeskCard,'● Preparando conexão...',20,54,320,22,10);
+  FSidebarStatus.Font.Color := RGBToColor(29,157,83);
+  FKeyBox := Panel(FLocalDeskCard); FKeyBox.Color := RGBToColor(255,243,244); FKeyBox.Cursor := crHandPoint; FKeyBox.OnClick := @KeyBoxClick;
+  FKeyTextLabel := LabelAt(FKeyBox,'--- --- ----',16,12,320,42,23,True); FKeyTextLabel.OnClick := @KeyBoxClick; FKeyTextLabel.Cursor := crHandPoint;
+  FDeskSubtitle := LabelAt(FLocalDeskCard,'Compartilhe esta chave com quem vai acessar seu computador.',20,151,320,40,9);
+  FDeskSubtitle.WordWrap := True; FDeskSubtitle.Font.Color := RGBToColor(107,117,133);
+  FBtnRegister := ButtonAt(FLocalDeskCard,'Copiar chave',@KeyBoxClick);
+  FRemoteDeskCard := Panel(FTopCardsPanel,True);
+  FRemoteTitle := LabelAt(FRemoteDeskCard,'Acessar outro computador',24,18,500,30,15,True);
+  FRemoteSubtitle := LabelAt(FRemoteDeskCard,'Chave do computador remoto',24,65,500,24,10);
+  FTarget := TEdit.Create(Self); FTarget.Parent := FRemoteDeskCard; FTarget.Font.Size := 18;
+  FTarget.TextHint := '000 000 0000'; FTarget.MaxLength := 64; FTarget.OnKeyDown := @TargetKeyDown;
+  FBtnConnect := ButtonAt(FRemoteDeskCard,'Conectar  →',@ConnectClick); FBtnConnect.Primary := True;
+  FBtnSaveFav := ButtonAt(FRemoteDeskCard,'☆  Salvar nos favoritos',@SaveFavClick);
+  FRecentHeaderPanel := Panel(FContentArea); FRecentHeaderPanel.Color := FContentArea.Color;
+  FRecentTitle := LabelAt(FRecentHeaderPanel,'Conexões recentes',0,9,360,30,15,True);
+  FRecentHint := LabelAt(FRecentHeaderPanel,'Duplo clique para conectar',440,14,300,22,9);
+  FRecentHint.Font.Color := RGBToColor(130,140,155);
+  FCardsScrollBox := TScrollBox.Create(Self); FCardsScrollBox.Parent := FContentArea;
+  FCardsScrollBox.BorderStyle := bsNone; FCardsScrollBox.Color := FContentArea.Color;
+  FCardsScrollBox.HorzScrollBar.Visible := False;
+  FDiscoveryCard := Panel(FContentArea,True);
+  FDiscTitle := LabelAt(FDiscoveryCard,'Área de transferência',20,12,500,24,11,True);
+  FDiscSubtitle := LabelAt(FDiscoveryCard,'Texto e arquivos durante a sessão autorizada.',20,36,800,22,9);
+  FDiscSubtitle.Font.Color := RGBToColor(107,117,133);
+  FDiscServerLabel := LabelAt(FDiscoveryCard,'',0,0,0,0,8); FDiscServerLabel.Visible := False;
+  FLogPanel := Panel(FContentArea,True);
+  FLogHeader := Panel(FLogPanel); FLogHeader.Color := clWhite; FLogHeader.Cursor := crHandPoint; FLogHeader.OnClick := @ToggleLog;
+  FLogTitleLabel := LabelAt(FLogHeader,'⌄  Diagnóstico da conexão',16,12,500,24,10,True);
+  FLogTitleLabel.OnClick := @ToggleLog; FLogTitleLabel.Cursor := crHandPoint;
+  FBtnTestConn := ButtonAt(FLogPanel,'Testar conexão',@TestConnClick);
+  FBtnSendLog := ButtonAt(FLogPanel,'Enviar diagnóstico',@SendLogClick);
+  FBtnCopyLog := ButtonAt(FLogPanel,'Copiar',@CopyLogClick);
+  FBtnClearLog := ButtonAt(FLogPanel,'Limpar',@ClearLogClick);
+  FLogMemo := TMemo.Create(Self); FLogMemo.Parent := FLogPanel; FLogMemo.ReadOnly := True;
+  FLogMemo.ScrollBars := ssAutoBoth; FLogMemo.WordWrap := False; FLogMemo.BorderStyle := bsNone;
+  FLogMemo.Font.Name := 'Consolas'; FLogMemo.Font.Size := 9; FLogMemo.Color := RGBToColor(247,249,252);
+  FLogMemo.Font.Color := RGBToColor(65,76,94);
+  FActiveSessionPanel := Panel(FContentArea,True); FActiveSessionPanel.Color := RGBToColor(238,252,244); FActiveSessionPanel.Visible := False;
+  FActiveSessionText := LabelAt(FActiveSessionPanel,'Sessão ativa',16,16,700,24,10,True);
+  FBtnStop := ButtonAt(FActiveSessionPanel,'Encerrar sessão',@StopClick);
+  FIncomingPanel := Panel(FContentArea,True); FIncomingPanel.Color := RGBToColor(255,248,231); FIncomingPanel.Visible := False;
+  FIncomingText := LabelAt(FIncomingPanel,'Solicitação de conexão',16,10,780,42,9,True); FIncomingText.WordWrap := True;
+  FBtnAcceptControl := ButtonAt(FIncomingPanel,'Controle + área de transferência',@AcceptControlClick);
+  FBtnAcceptControl.Primary := True; FBtnAcceptControl.Font.Size := 9;
+  FBtnAcceptView := ButtonAt(FIncomingPanel,'Só visualizar',@AcceptViewClick);
+  FBtnReject := ButtonAt(FIncomingPanel,'Recusar',@RejectClick);
+  FTrayMenu := TPopupMenu.Create(Self);
+  Item := TMenuItem.Create(FTrayMenu); Item.Caption := 'Abrir MaurinDesk'; Item.OnClick := @RestoreFromTray; FTrayMenu.Items.Add(Item);
+  Item := TMenuItem.Create(FTrayMenu); Item.Caption := 'Configurações'; Item.OnClick := @SettingsClick; FTrayMenu.Items.Add(Item);
+  Item := TMenuItem.Create(FTrayMenu); Item.Caption := 'Sair do MaurinDesk'; Item.OnClick := @ExitFromTray; FTrayMenu.Items.Add(Item);
+  FTrayIcon := TTrayIcon.Create(Self); FTrayIcon.Hint := 'MaurinDesk — disponível para conexões';
+  FTrayIcon.Icon.Assign(Application.Icon); FTrayIcon.PopupMenu := FTrayMenu;
+  FTrayIcon.OnDblClick := @RestoreFromTray; FTrayIcon.Visible := True;
+  OnResize := @LayoutModern; OnWindowStateChange := @WindowStateChanged;
+  LayoutModern(Self);
+end;
+
+procedure TMainForm.LayoutModern(Sender: TObject);
+var W, RowW, LocalW, BottomY, LogHeight, Columns, RecentTop: Integer;
+begin
+  if FContentArea = nil then Exit;
+  W := FContentArea.ClientWidth; RowW := W - 56; LocalW := RowW * 42 div 100;
+  FServerStatusLabel.SetBounds(ClientWidth-540,23,280,24);
+  FBtnLang.SetBounds(ClientWidth-246,14,56,36); FBtnSettings.SetBounds(ClientWidth-178,14,154,36);
+  FStatusMsgLabel.Width := ClientWidth-60;
+  FHeading.Width := RowW; FIntro.Width := RowW;
+  FTopCardsPanel.SetBounds(28,105,RowW,252);
+  FLocalDeskCard.SetBounds(0,0,LocalW-8,252);
+  FRemoteDeskCard.SetBounds(LocalW+8,0,RowW-LocalW-8,252);
+  FDeskTitle.Width := FLocalDeskCard.Width-40; FSidebarStatus.Width := FLocalDeskCard.Width-40;
+  FKeyBox.SetBounds(20,83,FLocalDeskCard.Width-40,60); FKeyTextLabel.Width := FKeyBox.Width-32;
+  if LocalW < 350 then FKeyTextLabel.Font.Size := 20 else FKeyTextLabel.Font.Size := 23;
+  FDeskSubtitle.Width := FLocalDeskCard.Width-40; FBtnRegister.SetBounds(20,202,FLocalDeskCard.Width-40,34);
+  FRemoteTitle.Width := FRemoteDeskCard.Width-48; FRemoteSubtitle.Width := FRemoteDeskCard.Width-48;
+  FTarget.SetBounds(24,94,FRemoteDeskCard.Width-48,42);
+  FBtnConnect.SetBounds(24,151,FRemoteDeskCard.Width-48,44); FBtnSaveFav.SetBounds(24,205,FRemoteDeskCard.Width-48,32);
+  RecentTop:=373; if FNavigation<>0 then RecentTop:=105;
+  FRecentHeaderPanel.SetBounds(28,RecentTop,RowW,44); FRecentTitle.Width := RowW div 2;
+  FRecentHint.SetBounds(RowW-230,16,230,22);
+  if FLogExpanded then LogHeight := 228 else LogHeight := 44;
+  BottomY := FContentArea.ClientHeight-18;
+  FLogPanel.SetBounds(28,BottomY-LogHeight,RowW,LogHeight); FLogHeader.SetBounds(8,2,RowW-16,40);
+  FLogTitleLabel.Width := RowW-48;
+  FBtnTestConn.Visible := FLogExpanded; FBtnSendLog.Visible := FLogExpanded;
+  FBtnCopyLog.Visible := FLogExpanded; FBtnClearLog.Visible := FLogExpanded; FLogMemo.Visible := FLogExpanded;
+  FBtnTestConn.SetBounds(12,45,140,32); FBtnSendLog.SetBounds(162,45,170,32);
+  FBtnCopyLog.SetBounds(342,45,88,32); FBtnClearLog.SetBounds(440,45,88,32);
+  FLogMemo.SetBounds(12,86,RowW-24,LogHeight-98);
+  BottomY := BottomY-LogHeight-12;
+  FDiscoveryCard.SetBounds(28,BottomY-70,RowW,70); FDiscSubtitle.Width := RowW-40;
+  BottomY := BottomY-82;
+  if FActiveSessionPanel.Visible then begin
+    FActiveSessionPanel.SetBounds(28,BottomY-52,RowW,52); FActiveSessionText.Width := RowW-206;
+    FBtnStop.SetBounds(RowW-184,9,168,34); BottomY := BottomY-64;
+  end;
+  if FIncomingPanel.Visible then begin
+    FIncomingPanel.SetBounds(28,BottomY-104,RowW,104); FIncomingText.Width := RowW-32;
+    FBtnAcceptControl.SetBounds(16,60,270,32); FBtnAcceptView.SetBounds(298,60,140,32); FBtnReject.SetBounds(450,60,106,32);
+    BottomY := BottomY-116;
+  end;
+  FTopCardsPanel.Visible := (BottomY >= 373) and (FNavigation=0);
+  FIntro.Visible := BottomY >= 105;
+  FHeading.Visible := BottomY >= 85;
+  // Keep the connection cards usable when diagnostics or consent occupy the lower area.
+  if BottomY < RecentTop+110 then begin
+    FRecentHeaderPanel.Visible := False; FCardsScrollBox.Visible := False;
+  end else begin
+    FRecentHeaderPanel.Visible := True; FCardsScrollBox.Visible := True;
+    FCardsScrollBox.SetBounds(28,RecentTop+50,RowW,BottomY-RecentTop-50);
+  end;
+  Columns := RowW div 280; if Columns < 1 then Columns := 1; if Columns > 3 then Columns := 3;
+  if (FGridColumns <> Columns) and (FCardsScrollBox <> nil) then begin FGridColumns := Columns; RebuildFavoriteCards; end;
+end;
+
+procedure TMainForm.ToggleLog(Sender: TObject);
+begin FLogExpanded := not FLogExpanded; LayoutModern(Self); end;
+procedure TMainForm.TargetKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin if Key = 13 then begin Key := 0; ConnectClick(Sender); end; end;
+procedure TMainForm.NavigationClick(Sender: TObject);
+begin
+  FNavigation := TControl(Sender).Tag;
+  FNavConnect.Selected := FNavigation=0; FNavFavorites.Selected := FNavigation=1; FNavHistory.Selected := FNavigation=2;
+  case FNavigation of 1: FRecentTitle.Caption := 'Favoritos'; 2: FRecentTitle.Caption := 'Histórico'; else FRecentTitle.Caption := 'Conexões recentes'; end;
+  RebuildFavoriteCards;
+  LayoutModern(Self);
+end;
+procedure TMainForm.RestoreFromTray(Sender: TObject);
+begin WindowState := wsNormal; Show; BringToFront; Application.BringToFront; end;
+procedure TMainForm.ExitFromTray(Sender: TObject);
+begin FExitRequested := True; Close; end;
+procedure TMainForm.WindowStateChanged(Sender: TObject);
+begin if WindowState = wsMinimized then Hide; end;
+
+procedure TMainForm.WndProc(var TheMessage: TLMessage);
+begin
+  if TheMessage.Msg=$0011 then FExitRequested:=True; // WM_QUERYENDSESSION: never block Windows shutdown.
+  inherited WndProc(TheMessage);
+end;
+
+procedure TMainForm.CheckUpdates(Sender: TObject);
+begin
+  if FClosing then Exit;
+  if FPendingUpdate<>'' then begin
+    if (FSessionId='') and not FBusy and (Application.ModalLevel=0) then begin
+      try
+        LaunchVerifiedUpdate(FPendingUpdate,Application.ExeName,FPendingUpdateHash);
+        FExitRequested:=True; Close;
+      except on E: Exception do begin
+        LogMsg('[ATUALIZAÇÃO ERRO] '+E.Message); FPendingUpdate:=''; FUpdateTimer.Interval:=86400000;
+      end; end;
+    end;
+    Exit;
+  end;
+  if not FSetMain.AutoUpdate then Exit;
+  if FUpdater<>nil then begin
+    if FUpdater.Finished then begin FUpdater.WaitFor; FreeAndNil(FUpdater); end else Exit;
+  end;
+  FUpdater:=TDeskUpdateThread.Create; FUpdater.OnReady:=@UpdateReady; FUpdater.Start;
+  FUpdateTimer.Interval:=86400000;
+end;
+
+procedure TMainForm.UpdateReady(Sender: TObject);
+begin
+  if FClosing then Exit;
+  if FUpdater.Failure<>'' then LogMsg('[ATUALIZAÇÃO] '+FUpdater.Failure)
+  else if FUpdater.NewVersion<>'' then begin
+    FPendingUpdate:=FUpdater.StagedExe; FPendingUpdateHash:=FUpdater.Checksum;
+    LogMsg('[ATUALIZAÇÃO] Versão '+FUpdater.NewVersion+' verificada. Será aplicada quando não houver sessão ativa.');
+    FUpdateTimer.Interval:=1000;
+  end else LogMsg('[ATUALIZAÇÃO] O aplicativo está atualizado.');
+end;
+
 constructor TMainForm.Create(AOwner: TComponent);
 var
   I: Integer;
   Prefix: string;
-  SepLine: TPanel;
   MI: TMenuItem;
   NeedsElev: Boolean;
 begin
   inherited CreateNew(AOwner);
-  Caption := 'MaurinDesk v0.6.4 — Conexão Remota Assistida';
-  SetBounds(100, 60, 980, 680);
-  Constraints.MinWidth := 860;
-  Constraints.MinHeight := 580;
+  Caption := 'MaurinDesk v0.6.5 — Conexão Remota Assistida';
+  SetBounds(100, 60, 1220, 840);
+  Constraints.MinWidth := 1000;
+  Constraints.MinHeight := 700;
   Position := poScreenCenter;
   Color := RGBToColor(245, 246, 248);
   Font.Name := 'Segoe UI';
@@ -371,8 +635,14 @@ begin
   // Address defaults to: https://maurinsoft.com.br/MaurinDesk/api
   FURL := 'https://maurinsoft.com.br/MaurinDesk/api';
   FStreamPort := DEFAULT_DESK_PORT;
-  FConfigFile := IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName)) + 'MaurinDesk.ini';
+  if DeskOption('--ui-preview') or DeskOption('--render-preview') or DeskOption('--self-test') then
+    FSetMain:=TSetMain.Create(ExpandFileName(ExtractFilePath(Application.ExeName)+'../build/ui-preview'),'')
+  else
+  FSetMain := TSetMain.Create(IncludeTrailingPathDelimiter(GetEnvironmentVariable('LOCALAPPDATA'))+'MaurinDesk',
+    IncludeTrailingPathDelimiter(ExtractFilePath(Application.ExeName))+'MaurinDesk.ini');
+  FConfigFile := FSetMain.Filename;
   LoadConfig;
+  Width := FSetMain.WindowWidth; Height := FSetMain.WindowHeight;
 
   // Command-line override support
   Prefix := '--dev-local-api=';
@@ -386,6 +656,8 @@ begin
   end;
 
   FProfile := IncludeTrailingPathDelimiter(GetAppConfigDir(False)) + MD5Print(MD5String(FURL)) + DirectorySeparator;
+  if DeskOption('--ui-preview') or DeskOption('--render-preview') or DeskOption('--self-test') then
+    FProfile:=IncludeTrailingPathDelimiter(ExpandFileName(ExtractFilePath(Application.ExeName)+'../build/ui-preview'));
   ForceDirectories(FProfile);
   FIdentityFile := FProfile + 'identity.dat';
 
@@ -400,526 +672,18 @@ begin
   MI.OnClick := @PopupDeleteClick;
   FCardPopupMenu.Items.Add(MI);
 
-  // -------------------------------------------------------------
-  // 1. TOP BAR (AnyDesk header with red diamond logo & tab)
-  // -------------------------------------------------------------
-  FTopBar := TPanel.Create(Self);
-  FTopBar.Parent := Self;
-  FTopBar.Align := alTop;
-  FTopBar.Height := 44;
-  FTopBar.BevelOuter := bvNone;
-  FTopBar.Color := RGBToColor(238, 240, 244);
-
-  // MaurinDesk / AnyDesk red diamond logo
-  FLogoBox := TPaintBox.Create(Self);
-  FLogoBox.Parent := FTopBar;
-  FLogoBox.SetBounds(8, 4, 36, 36);
-  FLogoBox.OnPaint := @DrawLogo;
-
-  // "Nova Conexão" tab
-  FTabPanel := TPanel.Create(Self);
-  FTabPanel.Parent := FTopBar;
-  FTabPanel.SetBounds(48, 6, 155, 38);
-  FTabPanel.BevelOuter := bvNone;
-  FTabPanel.Color := clWhite;
-  FTabLabel := TLabel.Create(Self);
-  FTabLabel.Parent := FTabPanel;
-  FTabLabel.SetBounds(14, 10, 125, 20);
-  FTabLabel.Caption := 'Nova Conexão';
-  FTabLabel.Font.Style := [fsBold];
-  FTabLabel.Font.Color := RGBToColor(30, 41, 59);
-  FTabLabel.Transparent := True;
-
-  // Top Search/Address Bar
-  FTopSearchPanel := TPanel.Create(Self);
-  FTopSearchPanel.Parent := FTopBar;
-  FTopSearchPanel.SetBounds(215, 6, 420, 32);
-  FTopSearchPanel.BevelOuter := bvNone;
-  FTopSearchPanel.Color := clWhite;
-
-  with TLabel.Create(Self) do begin
-    Parent := FTopSearchPanel;
-    SetBounds(8, 7, 16, 20);
-    Caption := '●';
-    Font.Color := RGBToColor(34, 197, 94); // Green dot
-    Font.Size := 11;
-    Transparent := True;
-  end;
-
-  FTopSearchEdit := TEdit.Create(Self);
-  FTopSearchEdit.Parent := FTopSearchPanel;
-  FTopSearchEdit.SetBounds(28, 4, 350, 24);
-  FTopSearchEdit.BorderStyle := bsNone;
-  FTopSearchEdit.Font.Size := 10;
-  FTopSearchEdit.TextHint := 'Chave Desk ou IP Remoto...';
-
-  FTopConnectBtn := TPanel.Create(Self);
-  FTopConnectBtn.Parent := FTopSearchPanel;
-  FTopConnectBtn.SetBounds(385, 3, 28, 26);
-  FTopConnectBtn.BevelOuter := bvNone;
-  FTopConnectBtn.Color := RGBToColor(238, 240, 244);
-  FTopConnectBtn.Cursor := crHandPoint;
-  FTopConnectBtn.OnClick := @TopConnectClick;
-  with TLabel.Create(Self) do begin
-    Parent := FTopConnectBtn;
-    SetBounds(8, 4, 16, 18);
-    Caption := '➔';
-    Font.Color := RGBToColor(30, 41, 59);
-    Font.Style := [fsBold];
-    Transparent := True;
-    OnClick := @TopConnectClick;
-  end;
-
-  // Language Button
-  FBtnLang := TButton.Create(Self);
-  FBtnLang.Parent := FTopBar;
-  FBtnLang.SetBounds(740, 6, 80, 32);
-  FBtnLang.Anchors := [akTop, akRight];
-  FBtnLang.Caption := '🌐 PT';
-  FBtnLang.OnClick := @BtnLangClick;
-
-  // Settings Button on right
-  FBtnSettings := TButton.Create(Self);
-  FBtnSettings.Parent := FTopBar;
-  FBtnSettings.SetBounds(825, 6, 135, 32);
-  FBtnSettings.Anchors := [akTop, akRight];
-  FBtnSettings.Caption := '⚙ Config Servidor';
-  FBtnSettings.OnClick := @SettingsClick;
-
-  // -------------------------------------------------------------
-  // 2. BOTTOM STATUS BAR
-  // -------------------------------------------------------------
-  FStatusBar := TPanel.Create(Self);
-  FStatusBar.Parent := Self;
-  FStatusBar.Align := alBottom;
-  FStatusBar.Height := 26;
-  FStatusBar.BevelOuter := bvNone;
-  FStatusBar.Color := RGBToColor(241, 245, 249);
-
-  FStatusDot := TLabel.Create(Self);
-  FStatusDot.Parent := FStatusBar;
-  FStatusDot.SetBounds(12, 5, 16, 18);
-  FStatusDot.Caption := '●';
-  FStatusDot.Font.Color := RGBToColor(34, 197, 94);
-  FStatusDot.Transparent := True;
-
-  FServerStatusLabel := TLabel.Create(Self);
-  FServerStatusLabel.Parent := FStatusBar;
-  FServerStatusLabel.SetBounds(30, 6, 320, 16);
-  FServerStatusLabel.Caption := 'Servidor: ' + FURL;
-  FServerStatusLabel.Font.Size := 8;
-  FServerStatusLabel.Font.Color := RGBToColor(71, 85, 105);
-  FServerStatusLabel.Transparent := True;
-
-  FStatusMsgLabel := TLabel.Create(Self);
-  FStatusMsgLabel.Parent := FStatusBar;
-  FStatusMsgLabel.SetBounds(360, 6, 500, 16);
-  FStatusMsgLabel.Caption := 'Pronto.';
-  FStatusMsgLabel.Font.Size := 8;
-  FStatusMsgLabel.Font.Color := RGBToColor(100, 116, 139);
-  FStatusMsgLabel.Transparent := True;
-
-  with TLabel.Create(Self) do begin
-    Parent := FStatusBar;
-    Align := alRight;
-    Alignment := taRightJustify;
-    Width := 160;
-    Caption := 'MaurinDesk v0.6.4  ';
-    Font.Size := 9;
-    Font.Style := [fsBold];
-    Font.Color := RGBToColor(220, 38, 38);
-    Transparent := True;
-  end;
-
-  // -------------------------------------------------------------
-  // 3. LEFT SIDEBAR ("This Desk" / "Este Computador")
-  // -------------------------------------------------------------
-  FSidebar := TPanel.Create(Self);
-  FSidebar.Parent := Self;
-  FSidebar.Align := alLeft;
-  FSidebar.Width := 240;
-  FSidebar.BevelOuter := bvNone;
-  FSidebar.Color := clWhite;
-
-  SepLine := TPanel.Create(Self);
-  SepLine.Parent := FSidebar;
-  SepLine.Align := alRight;
-  SepLine.Width := 1;
-  SepLine.BevelOuter := bvNone;
-  SepLine.Color := RGBToColor(226, 232, 240);
-
-  FDeskTitle := TLabel.Create(Self);
-  FDeskTitle.Parent := FSidebar;
-  FDeskTitle.SetBounds(18, 14, 200, 22);
-  FDeskTitle.Caption := 'Este Computador';
-  FDeskTitle.Font.Size := 13;
-  FDeskTitle.Font.Style := [fsBold];
-  FDeskTitle.Font.Color := RGBToColor(229, 57, 53);
-
-  with TLabel.Create(Self) do begin
-    Parent := FSidebar;
-    SetBounds(18, 36, 204, 16);
-    Caption := '● Software v0.6.4 (Build 2026-11-14)';
-    Font.Size := 8;
-    Font.Style := [fsBold];
-    Font.Color := RGBToColor(14, 165, 233);
-    Transparent := True;
-  end;
-
-  FDeskSubtitle := TLabel.Create(Self);
-  FDeskSubtitle.Parent := FSidebar;
-  FDeskSubtitle.SetBounds(18, 54, 204, 32);
-  FDeskSubtitle.Caption := 'Seu computador pode ser acessado por este endereço.';
-  FDeskSubtitle.Font.Size := 8;
-  FDeskSubtitle.Font.Color := RGBToColor(100, 116, 139);
-  FDeskSubtitle.WordWrap := True;
-
-  // AnyDesk ID Box
-  FKeyBox := TPanel.Create(Self);
-  FKeyBox.Parent := FSidebar;
-  FKeyBox.SetBounds(18, 88, 200, 48);
-  FKeyBox.BevelOuter := bvNone;
-  FKeyBox.Color := RGBToColor(255, 245, 245);
-  FKeyBox.Cursor := crHandPoint;
-  FKeyBox.OnClick := @KeyBoxClick;
-
-  FKeyIconBox := TPaintBox.Create(Self);
-  FKeyIconBox.Parent := FKeyBox;
-  FKeyIconBox.SetBounds(6, 8, 30, 32);
-  FKeyIconBox.OnPaint := @DrawKeyIcon;
-  FKeyIconBox.OnClick := @KeyBoxClick;
-
-  FKeyTextLabel := TLabel.Create(Self);
-  FKeyTextLabel.Parent := FKeyBox;
-  FKeyTextLabel.SetBounds(42, 13, 150, 24);
-  FKeyTextLabel.Caption := '--- --- ---';
-  FKeyTextLabel.Font.Size := 13;
-  FKeyTextLabel.Font.Style := [fsBold];
-  FKeyTextLabel.Font.Color := RGBToColor(30, 41, 59);
-  FKeyTextLabel.Cursor := crHandPoint;
-  FKeyTextLabel.OnClick := @KeyBoxClick;
-  FKeyTextLabel.Hint := 'Clique para copiar a chave';
-  FKeyTextLabel.ShowHint := True;
-
-  FBtnRegister := TButton.Create(Self);
-  FBtnRegister.Parent := FSidebar;
-  FBtnRegister.SetBounds(18, 142, 200, 30);
-  FBtnRegister.Caption := 'Registrar / Obter Chave';
-  FBtnRegister.OnClick := @RegisterClick;
-
-  FSidebarStatus := TLabel.Create(Self);
-  FSidebarStatus.Parent := FSidebar;
-  FSidebarStatus.SetBounds(18, 178, 200, 18);
-  FSidebarStatus.Caption := '● Não conectado';
-  FSidebarStatus.Font.Size := 8;
-  FSidebarStatus.Font.Color := RGBToColor(156, 163, 175);
-
-  FBannerPanel := TPanel.Create(Self);
-  FBannerPanel.Parent := FSidebar;
-  FBannerPanel.Align := alBottom;
-  FBannerPanel.Height := 115;
-  FBannerPanel.BevelOuter := bvNone;
-  FBannerPanel.Color := RGBToColor(239, 68, 68);
-
-  FBannerTitleLabel := TLabel.Create(Self);
-  FBannerTitleLabel.Parent := FBannerPanel;
-  FBannerTitleLabel.SetBounds(16, 10, 208, 20);
-  FBannerTitleLabel.Caption := 'MaurinDesk v0.6.4';
-  FBannerTitleLabel.Font.Size := 11;
-  FBannerTitleLabel.Font.Style := [fsBold];
-  FBannerTitleLabel.Font.Color := clWhite;
-  FBannerTitleLabel.Transparent := True;
-
-  FBannerBuildLabel := TLabel.Create(Self);
-  FBannerBuildLabel.Parent := FBannerPanel;
-  FBannerBuildLabel.SetBounds(16, 32, 208, 16);
-  FBannerBuildLabel.Caption := 'Build: 2026-11-14 | Stream Ativo';
-  FBannerBuildLabel.Font.Size := 8;
-  FBannerBuildLabel.Font.Color := RGBToColor(254, 226, 226);
-  FBannerBuildLabel.Transparent := True;
-
-  FBannerTagLabel := TLabel.Create(Self);
-  FBannerTagLabel.Parent := FBannerPanel;
-  FBannerTagLabel.SetBounds(16, 52, 208, 30);
-  FBannerTagLabel.Caption := 'Acesso remoto assistido e seguro.';
-  FBannerTagLabel.Font.Size := 8;
-  FBannerTagLabel.Font.Color := RGBToColor(254, 226, 226);
-  FBannerTagLabel.Transparent := True;
-  FBannerTagLabel.WordWrap := True;
-
-  FBannerWebLabel := TLabel.Create(Self);
-  FBannerWebLabel.Parent := FBannerPanel;
-  FBannerWebLabel.SetBounds(16, 88, 208, 16);
-  FBannerWebLabel.Caption := 'maurinsoft.com.br';
-  FBannerWebLabel.Font.Size := 8;
-  FBannerWebLabel.Font.Style := [fsBold];
-  FBannerWebLabel.Font.Color := clWhite;
-  FBannerWebLabel.Transparent := True;
-
-  // -------------------------------------------------------------
-  // 4. MAIN RIGHT CONTENT AREA
-  // -------------------------------------------------------------
-  FContentArea := TPanel.Create(Self);
-  FContentArea.Parent := Self;
-  FContentArea.Align := alClient;
-  FContentArea.BevelOuter := bvNone;
-  FContentArea.Color := RGBToColor(245, 246, 248);
-
-  // Top Cards Panel (Remote Desk Card + Discovery Card)
-  FTopCardsPanel := TPanel.Create(Self);
-  FTopCardsPanel.Parent := FContentArea;
-  FTopCardsPanel.Align := alTop;
-  FTopCardsPanel.Height := 155;
-  FTopCardsPanel.BevelOuter := bvNone;
-  FTopCardsPanel.Color := RGBToColor(245, 246, 248);
-
-  // Card 1: Remote Desk Card
-  FRemoteDeskCard := TPanel.Create(Self);
-  FRemoteDeskCard.Parent := FTopCardsPanel;
-  FRemoteDeskCard.SetBounds(20, 10, 400, 135);
-  FRemoteDeskCard.BevelOuter := bvNone;
-  FRemoteDeskCard.Color := clWhite;
-
-  FRemoteAccentBar := TPanel.Create(Self);
-  FRemoteAccentBar.Parent := FRemoteDeskCard;
-  FRemoteAccentBar.Align := alLeft;
-  FRemoteAccentBar.Width := 5;
-  FRemoteAccentBar.BevelOuter := bvNone;
-  FRemoteAccentBar.Color := RGBToColor(255, 107, 0);
-
-  FRemoteTitle := TLabel.Create(Self);
-  FRemoteTitle.Parent := FRemoteDeskCard;
-  FRemoteTitle.SetBounds(18, 12, 200, 20);
-  FRemoteTitle.Caption := 'Computador Remoto';
-  FRemoteTitle.Font.Size := 11;
-  FRemoteTitle.Font.Style := [fsBold];
-  FRemoteTitle.Font.Color := RGBToColor(230, 81, 0);
-  FRemoteTitle.Transparent := True;
-
-  FRemoteSubtitle := TLabel.Create(Self);
-  FRemoteSubtitle.Parent := FRemoteDeskCard;
-  FRemoteSubtitle.SetBounds(18, 34, 360, 26);
-  FRemoteSubtitle.Caption := 'Informe o endereço do computador que você gostaria de acessar.';
-  FRemoteSubtitle.Font.Size := 8;
-  FRemoteSubtitle.Font.Color := RGBToColor(100, 116, 139);
-  FRemoteSubtitle.Transparent := True;
-
-  FTarget := TEdit.Create(Self);
-  FTarget.Parent := FRemoteDeskCard;
-  FTarget.SetBounds(18, 60, 360, 28);
-  FTarget.Font.Size := 11;
-  FTarget.MaxLength := 10;
-  FTarget.TextHint := 'Informe o ID ou Apelido remoto';
-
-  FBtnSaveFav := TButton.Create(Self);
-  FBtnSaveFav.Parent := FRemoteDeskCard;
-  FBtnSaveFav.SetBounds(176, 94, 102, 30);
-  FBtnSaveFav.Caption := 'Salvar Favorito';
-  FBtnSaveFav.OnClick := @SaveFavClick;
-
-  FBtnConnect := TButton.Create(Self);
-  FBtnConnect.Parent := FRemoteDeskCard;
-  FBtnConnect.SetBounds(286, 94, 92, 30);
-  FBtnConnect.Caption := 'Conectar';
-  FBtnConnect.Font.Style := [fsBold];
-  FBtnConnect.OnClick := @ConnectClick;
-
-  // Card 2: Discovery Card
-  FDiscoveryCard := TPanel.Create(Self);
-  FDiscoveryCard.Parent := FTopCardsPanel;
-  FDiscoveryCard.SetBounds(435, 10, 310, 135);
-  FDiscoveryCard.BevelOuter := bvNone;
-  FDiscoveryCard.Color := RGBToColor(25, 118, 210);
-
-  FDiscTitle := TLabel.Create(Self);
-  FDiscTitle.Parent := FDiscoveryCard;
-  FDiscTitle.SetBounds(16, 12, 280, 20);
-  FDiscTitle.Caption := 'Descoberta / Servidor';
-  FDiscTitle.Font.Size := 11;
-  FDiscTitle.Font.Style := [fsBold];
-  FDiscTitle.Font.Color := clWhite;
-  FDiscTitle.Transparent := True;
-
-  FDiscSubtitle := TLabel.Create(Self);
-  FDiscSubtitle.Parent := FDiscoveryCard;
-  FDiscSubtitle.SetBounds(16, 36, 280, 50);
-  FDiscSubtitle.Caption := 'Conectado à API MaurinDesk na nuvem. Sessões gerenciadas por consentimento.';
-  FDiscSubtitle.Font.Size := 8;
-  FDiscSubtitle.Font.Color := RGBToColor(224, 242, 254);
-  FDiscSubtitle.WordWrap := True;
-  FDiscSubtitle.Transparent := True;
-
-  FDiscServerLabel := TLabel.Create(Self);
-  FDiscServerLabel.Parent := FDiscoveryCard;
-  FDiscServerLabel.SetBounds(16, 90, 280, 38);
-  FDiscServerLabel.Caption := 'API: /MaurinDesk/api';
-  FDiscServerLabel.Font.Size := 8;
-  FDiscServerLabel.Font.Color := clWhite;
-  FDiscServerLabel.WordWrap := True;
-  FDiscServerLabel.Transparent := True;
-
-  // -------------------------------------------------------------
-  // 5. LOG CONSOLE PANEL AT THE BOTTOM (Visual Connection Log)
-  // -------------------------------------------------------------
-  FLogPanel := TPanel.Create(Self);
-  FLogPanel.Parent := FContentArea;
-  FLogPanel.Align := alBottom;
-  FLogPanel.Height := 155;
-  FLogPanel.BevelOuter := bvNone;
-  FLogPanel.Color := RGBToColor(241, 245, 249);
-
-  FLogHeader := TPanel.Create(Self);
-  FLogHeader.Parent := FLogPanel;
-  FLogHeader.Align := alTop;
-  FLogHeader.Height := 28;
-  FLogHeader.BevelOuter := bvNone;
-  FLogHeader.Color := RGBToColor(241, 245, 249);
-
-  FLogTitleLabel := TLabel.Create(Self);
-  FLogTitleLabel.Parent := FLogHeader;
-  FLogTitleLabel.SetBounds(12, 6, 240, 16);
-  FLogTitleLabel.ShowAccelChar := False;
-  FLogTitleLabel.Caption := 'REGISTRO DE CONEXÃO E REDE (LOG)';
-  FLogTitleLabel.Font.Size := 8;
-  FLogTitleLabel.Font.Style := [fsBold];
-  FLogTitleLabel.Font.Color := RGBToColor(71, 85, 105);
-
-  FBtnTestConn := TButton.Create(Self);
-  FBtnTestConn.Parent := FLogHeader;
-  FBtnTestConn.SetBounds(310, 2, 95, 24);
-  FBtnTestConn.Anchors := [akTop, akRight];
-  FBtnTestConn.Caption := 'Testar Conexão';
-  FBtnTestConn.OnClick := @TestConnClick;
-
-  FBtnSendLog := TButton.Create(Self);
-  FBtnSendLog.Parent := FLogHeader;
-  FBtnSendLog.SetBounds(410, 2, 145, 24);
-  FBtnSendLog.Anchors := [akTop, akRight];
-  FBtnSendLog.Caption := 'Enviar Log ao Servidor';
-  FBtnSendLog.OnClick := @SendLogClick;
-
-  FBtnCopyLog := TButton.Create(Self);
-  FBtnCopyLog.Parent := FLogHeader;
-  FBtnCopyLog.SetBounds(560, 2, 75, 24);
-  FBtnCopyLog.Anchors := [akTop, akRight];
-  FBtnCopyLog.Caption := 'Copiar Log';
-  FBtnCopyLog.OnClick := @CopyLogClick;
-
-  FBtnClearLog := TButton.Create(Self);
-  FBtnClearLog.Parent := FLogHeader;
-  FBtnClearLog.SetBounds(640, 2, 60, 24);
-  FBtnClearLog.Anchors := [akTop, akRight];
-  FBtnClearLog.Caption := 'Limpar';
-  FBtnClearLog.OnClick := @ClearLogClick;
-
-  FLogMemo := TMemo.Create(Self);
-  FLogMemo.Parent := FLogPanel;
-  FLogMemo.Align := alClient;
-  FLogMemo.Color := RGBToColor(15, 23, 42); // Dark terminal slate
-  FLogMemo.Font.Name := 'Consolas';
-  FLogMemo.Font.Size := 9;
-  FLogMemo.Font.Color := RGBToColor(241, 245, 249);
-  FLogMemo.ReadOnly := True;
-  FLogMemo.ScrollBars := ssAutoBoth;
-  FLogMemo.BorderStyle := bsNone;
-
-  // Active Session Panel (Above Log)
-  FActiveSessionPanel := TPanel.Create(Self);
-  FActiveSessionPanel.Parent := FContentArea;
-  FActiveSessionPanel.Align := alBottom;
-  FActiveSessionPanel.Height := 46;
-  FActiveSessionPanel.BevelOuter := bvNone;
-  FActiveSessionPanel.Color := RGBToColor(220, 252, 231);
-  FActiveSessionPanel.Visible := False;
-
-  FActiveSessionText := TLabel.Create(Self);
-  FActiveSessionText.Parent := FActiveSessionPanel;
-  FActiveSessionText.SetBounds(18, 14, 480, 20);
-  FActiveSessionText.Caption := 'Sessão ativa.';
-  FActiveSessionText.Font.Style := [fsBold];
-  FActiveSessionText.Font.Color := RGBToColor(22, 101, 52);
-
-  FBtnStop := TButton.Create(Self);
-  FBtnStop.Parent := FActiveSessionPanel;
-  FBtnStop.SetBounds(510, 8, 140, 30);
-  FBtnStop.Caption := 'Encerrar Sessão';
-  FBtnStop.OnClick := @StopClick;
-
-  // Incoming Consent Alert Panel (Above Active/Log)
-  FIncomingPanel := TPanel.Create(Self);
-  FIncomingPanel.Parent := FContentArea;
-  FIncomingPanel.Align := alBottom;
-  FIncomingPanel.Height := 65;
-  FIncomingPanel.BevelOuter := bvNone;
-  FIncomingPanel.Color := RGBToColor(254, 243, 199);
-  FIncomingPanel.Visible := False;
-
-  FIncomingText := TLabel.Create(Self);
-  FIncomingText.Parent := FIncomingPanel;
-  FIncomingText.SetBounds(18, 12, 380, 40);
-  FIncomingText.Caption := 'Solicitação de conexão recebida!';
-  FIncomingText.Font.Style := [fsBold];
-  FIncomingText.Font.Color := RGBToColor(146, 64, 14);
-  FIncomingText.WordWrap := True;
-
-  FBtnAcceptControl := TButton.Create(Self);
-  FBtnAcceptControl.Parent := FIncomingPanel;
-  FBtnAcceptControl.SetBounds(410, 16, 130, 32);
-  FBtnAcceptControl.Caption := 'Permitir Controle';
-  FBtnAcceptControl.OnClick := @AcceptControlClick;
-
-  FBtnAcceptView := TButton.Create(Self);
-  FBtnAcceptView.Parent := FIncomingPanel;
-  FBtnAcceptView.SetBounds(548, 16, 110, 32);
-  FBtnAcceptView.Caption := 'Só Visualizar';
-  FBtnAcceptView.OnClick := @AcceptViewClick;
-
-  FBtnReject := TButton.Create(Self);
-  FBtnReject.Parent := FIncomingPanel;
-  FBtnReject.SetBounds(666, 16, 90, 32);
-  FBtnReject.Caption := 'Recusar';
-  FBtnReject.OnClick := @RejectClick;
-
-  // Recent Sessions Header
-  FRecentHeaderPanel := TPanel.Create(Self);
-  FRecentHeaderPanel.Parent := FContentArea;
-  FRecentHeaderPanel.Align := alTop;
-  FRecentHeaderPanel.Height := 32;
-  FRecentHeaderPanel.BevelOuter := bvNone;
-  FRecentHeaderPanel.Color := RGBToColor(245, 246, 248);
-
-  FRecentTitle := TLabel.Create(Self);
-  FRecentTitle.Parent := FRecentHeaderPanel;
-  FRecentTitle.SetBounds(22, 8, 140, 18);
-  FRecentTitle.Caption := 'SESSÕES RECENTES';
-  FRecentTitle.Font.Size := 9;
-  FRecentTitle.Font.Style := [fsBold];
-  FRecentTitle.Font.Color := RGBToColor(100, 116, 139);
-
-  FRecentHint := TLabel.Create(Self);
-  FRecentHint.Parent := FRecentHeaderPanel;
-  FRecentHint.SetBounds(170, 9, 350, 18);
-  FRecentHint.Caption := '• Duplo clique no cartão para conectar';
-  FRecentHint.Font.Size := 8;
-  FRecentHint.Font.Color := RGBToColor(148, 163, 184);
-
-  // Cards ScrollBox (Fills remaining space in FContentArea)
-  FCardsScrollBox := TScrollBox.Create(Self);
-  FCardsScrollBox.Parent := FContentArea;
-  FCardsScrollBox.Align := alClient;
-  FCardsScrollBox.BorderStyle := bsNone;
-  FCardsScrollBox.Color := RGBToColor(245, 246, 248);
-
+  BuildModernLayout;
   UpdateServerLabels;
   LoadFavorites;
   ApplyLanguage;
 
   // Initial Log messages
-  LogMsg('MaurinDesk v0.6.4 (Build 2026-11-14) inicializado.');
+  LogMsg('MaurinDesk v0.6.5 (Build 2026-11-14) inicializado.');
   LogMsg('Servidor configurado: ' + FURL);
   LogMsg('Perfil local: ' + FProfile);
 
   // Assegura automaticamente as regras do Windows Firewall (porta de streaming e binário)
+  if not (DeskOption('--ui-preview') or DeskOption('--render-preview') or DeskOption('--self-test')) then begin
   if EnsureFirewallRule(NeedsElev, FStreamPort) then begin
     if NeedsElev then
       LogMsg('[FIREWALL] Solicitada liberação automática do Windows Firewall (UAC).')
@@ -927,31 +691,45 @@ begin
       LogMsg('[FIREWALL] Porta TCP ' + IntToStr(FStreamPort) + ' e aplicativo liberados no Windows Firewall.');
   end else
     LogMsg('[FIREWALL AVISO] Não foi possível registrar regras no Windows Firewall.');
+  end;
 
   // Polling timer
   FTimer := TTimer.Create(Self);
   FTimer.Interval := 15000;
   FTimer.OnTimer := @Tick;
-  FTimer.Enabled := True;
+  FTimer.Enabled := not (DeskOption('--ui-preview') or DeskOption('--render-preview') or DeskOption('--self-test'));
+  FUpdateTimer := TTimer.Create(Self); FUpdateTimer.Interval := 30000;
+  FUpdateTimer.OnTimer := @CheckUpdates;
+  FUpdateTimer.Enabled := FSetMain.AutoUpdate and FTimer.Enabled;
 
   // Auto-register or test connection on startup
+  if FTimer.Enabled then begin
   if FileExists(FIdentityFile) then begin
     LogMsg('Identidade encontrada no disco. Verificando registro...');
     Start(opRegister);
-  end else
-    LogMsg('Máquina ainda não registrada. Clique em "Registrar / Obter Chave".');
+  end else begin
+    LogMsg('Preparando a chave deste computador...'); Start(opRegister);
+  end;
+  end;
 end;
 
 destructor TMainForm.Destroy;
 begin
   FClosing := True;
-  FTimer.Enabled := False;
+  Application.RemoveAsyncCalls(Self);
+  if FTimer <> nil then FTimer.Enabled := False;
+  if FUpdateTimer <> nil then FUpdateTimer.Enabled := False;
+  if FUpdater <> nil then begin FUpdater.Terminate; FUpdater.WaitFor; FreeAndNil(FUpdater); end;
   StopStreaming;
   if FWorker <> nil then begin
     FWorker.WaitFor;
     FWorker.Free;
   end;
   FIncomingIds.Free;
+  if FSetMain <> nil then begin
+    if not (DeskOption('--ui-preview') or DeskOption('--render-preview') or DeskOption('--self-test')) then SaveConfig;
+    FreeAndNil(FSetMain);
+  end;
   inherited Destroy;
 end;
 
@@ -961,6 +739,7 @@ var
 begin
   T := FormatDateTime('hh:nn:ss', Now);
   FLogMemo.Lines.Add('[' + T + '] ' + Msg);
+  while FLogMemo.Lines.Count>2000 do FLogMemo.Lines.Delete(0);
   FLogMemo.SelStart := Length(FLogMemo.Text);
 end;
 
@@ -971,39 +750,22 @@ end;
 
 procedure TMainForm.UpdateServerLabels;
 begin
-  FServerStatusLabel.Caption := 'Servidor: ' + FURL;
+  FServerStatusLabel.Hint := FURL; FServerStatusLabel.ShowHint := True;
   FDiscServerLabel.Caption := 'Servidor: ' + FURL;
 end;
 
 procedure TMainForm.LoadConfig;
-var
-  Ini: TIniFile;
 begin
-  if FileExists(FConfigFile) then begin
-    Ini := TIniFile.Create(FConfigFile);
-    try
-      FURL := Ini.ReadString('Server', 'URL', FURL);
-      FStreamPort := Ini.ReadInteger('Network', 'Port', DEFAULT_DESK_PORT);
-      SetDeskLanguage(StrToDeskLang(Ini.ReadString('General', 'Language', 'pt')));
-    finally
-      Ini.Free;
-    end;
-  end;
+  FURL := FSetMain.ServerURL; FStreamPort := FSetMain.StreamPort;
+  SetDeskLanguage(StrToDeskLang(FSetMain.Language));
 end;
 
 procedure TMainForm.SaveConfig;
-var
-  Ini: TIniFile;
 begin
-  Ini := TIniFile.Create(FConfigFile);
-  try
-    Ini.WriteString('Server', 'URL', FURL);
-    Ini.WriteInteger('Network', 'Port', FStreamPort);
-    Ini.WriteString('General', 'Language', DeskLangToStr(GetDeskLanguage));
-    Ini.UpdateFile;
-  finally
-    Ini.Free;
-  end;
+  FSetMain.ServerURL := FURL; FSetMain.StreamPort := FStreamPort;
+  FSetMain.Language := DeskLangToStr(GetDeskLanguage);
+  if WindowState=wsNormal then begin FSetMain.WindowWidth := Width; FSetMain.WindowHeight := Height; end;
+  FSetMain.Save;
 end;
 
 procedure TMainForm.DrawLogo(Sender: TObject);
@@ -1044,32 +806,10 @@ begin
 end;
 
 procedure TMainForm.DrawCardThumbnail(Sender: TObject);
-var
-  PB: TPaintBox;
-  W, H: Integer;
+var PB: TPaintBox;
 begin
-  PB := TPaintBox(Sender);
-  W := PB.Width;
-  H := PB.Height;
-
-  // Background scenic wallpaper gradient (Blue sky to water/ocean)
-  PB.Canvas.GradientFill(Rect(0, 0, W, H), RGBToColor(37, 99, 235), RGBToColor(147, 197, 253), gdVertical);
-
-  // Horizon / mountain silhouettes
-  PB.Canvas.Brush.Color := RGBToColor(30, 58, 138);
-  PB.Canvas.Pen.Color := RGBToColor(30, 58, 138);
-  PB.Canvas.Polygon([Point(0, H), Point(0, H - 28), Point(W div 3, H - 42), Point(2 * W div 3, H - 24), Point(W, H - 34), Point(W, H)]);
-
-  // Status Circle Top-Left (Green = Online / Favorite)
-  PB.Canvas.Brush.Color := RGBToColor(34, 197, 94);
-  PB.Canvas.Pen.Color := clWhite;
-  PB.Canvas.Ellipse(10, 10, 22, 22);
-
-  // Favorite Star Top-Right
-  PB.Canvas.Font.Size := 12;
-  PB.Canvas.Font.Color := RGBToColor(251, 191, 36);
-  PB.Canvas.Brush.Style := bsClear;
-  PB.Canvas.TextOut(W - 22, 8, '★');
+  PB:=TPaintBox(Sender); PB.Canvas.Brush.Color:=RGBToColor(245,247,250); PB.Canvas.Pen.Color:=RGBToColor(102,114,132);
+  PB.Canvas.RoundRect(3,3,31,24,4,4); PB.Canvas.Line(17,24,17,31); PB.Canvas.Line(9,31,25,31);
 end;
 
 procedure TMainForm.KeyBoxClick(Sender: TObject);
@@ -1077,7 +817,7 @@ begin
   if FRawPublicKey <> '' then begin
     Clipboard.AsText := FRawPublicKey;
     LogMsg('Chave ' + FormatDeskKey(FRawPublicKey) + ' copiada para a área de transferência.');
-    ShowMessage('Chave ' + FormatDeskKey(FRawPublicKey) + ' copiada para a área de transferência!');
+    FStatusMsgLabel.Caption := 'Chave copiada para a área de transferência.';
   end else
     Start(opRegister);
 end;
@@ -1093,6 +833,9 @@ var
   TargetText, CleanTarget, DirectHost: string;
   ColonPos, TargetPort: Integer;
 begin
+  if FBusy then begin FStatusMsgLabel.Caption:='Aguarde a comunicação atual terminar.'; Exit; end;
+  if FSessionId<>'' then begin ShowMessage('Encerre a sessão atual antes de iniciar outra conexão.'); Exit; end;
+  FStoppingSession:=False;
   TargetText := Trim(FTarget.Text);
   CleanTarget := StringReplace(TargetText, ' ', '', [rfReplaceAll]);
 
@@ -1126,6 +869,9 @@ begin
     Exit;
   end;
   FIsController := True;
+  FSessionTargetKey := CleanTarget;
+  FSessionWasAccepted := False;
+  FTarget.Text := CleanTarget;
   LogMsg('Solicitando conexão para chave: ' + FormatDeskKey(CleanTarget) + '...');
   Start(opConnect);
 end;
@@ -1231,6 +977,9 @@ begin
     FSidebarStatus.Caption := _T(strStatusCommError);
     FSidebarStatus.Font.Color := RGBToColor(239, 68, 68);
     LogMsg('[FALHA] ' + W.Failure);
+    if W.Operation in [opPoll,opRegister,opHealth] then begin
+      FServerStatusLabel.Caption:='● Verifique a conexão ao servidor'; FServerStatusLabel.Font.Color:=RGBToColor(205,87,43);
+    end;
 
     if Pos('403', W.Failure) > 0 then
       LogMsg('[DICA 403] Servidor retornou Acesso Proibido. Certifique-se de que a pasta server/api foi copiada para public_html/MaurinDesk/api/.')
@@ -1242,6 +991,7 @@ begin
     if W.Operation <> opSendLog then
       SendFailureLogToServer('API_ERROR', W.Failure);
 
+    if FHasPendingOp then Application.QueueAsyncCall(@ProcessPendingOperation,0);
     Exit;
   end;
   if W.Data = nil then Exit;
@@ -1253,12 +1003,14 @@ begin
       FKeyTextLabel.Caption := FormatDeskKey(FRawPublicKey);
       FSidebarStatus.Caption := '● Registrado e Online';
       FSidebarStatus.Font.Color := RGBToColor(34, 197, 94);
+      FServerStatusLabel.Caption := '● Conectado ao servidor'; FServerStatusLabel.Font.Color := RGBToColor(29,157,83);
       FStatusMsgLabel.Caption := 'Máquina registrada. Chave: ' + FormatDeskKey(FRawPublicKey);
       LogMsg('[SUCESSO] Registrado no servidor! Sua chave é: ' + FormatDeskKey(FRawPublicKey) +
         ' | Token: ' + Copy(FToken, 1, 8) + '...');
     end;
 
     opPoll: begin
+      FServerStatusLabel.Caption:='● Conectado ao servidor'; FServerStatusLabel.Font.Color:=RGBToColor(29,157,83);
       A := W.Data.Arrays['items'];
       FIncomingIds.Clear;
       if A.Count > 0 then begin
@@ -1269,6 +1021,14 @@ begin
         FIncomingText.Caption := 'Solicitação recebida de: ' + ReqKey + ' (' + ReqName + ')' +
           #13#10'Autorize apenas quem você conhece.';
         FIncomingPanel.Visible := True;
+        if FLastIncomingId<>J.Get('id','') then begin
+          FLastIncomingId:=J.Get('id','');
+          if not Visible then begin
+            FTrayIcon.BalloonTitle:='Solicitação de conexão';
+            FTrayIcon.BalloonHint:=ReqName+' solicita acesso. Abra o MaurinDesk para autorizar.';
+            FTrayIcon.ShowBalloonHint;
+          end;
+        end;
         LogMsg('[PEDIDO RECEBIDO] ' + ReqKey + ' (' + ReqName + ') solicitou acesso.');
       end else
         FIncomingPanel.Visible := False;
@@ -1279,6 +1039,8 @@ begin
         FActiveSessionText.Caption := 'Sessão atual: ' + State + ' (Chave: ' + FTarget.Text + ')';
         FActiveSessionPanel.Visible := (State = 'accepted') or (State = 'active') or (State = 'pending');
         LogMsg('[STATUS SESSÃO] Estado atual: ' + State);
+        if (State = 'accepted') or (State = 'active') or (State = 'connecting') then StartClipboard(J);
+        if (State = 'accepted') and FIsController then RememberRemote;
         CommObj := TJSONObject(J.Find('communication'));
         if CommObj <> nil then begin
           HostObj := CommObj.Objects['host'];
@@ -1303,7 +1065,7 @@ begin
         end;
 
         // Se a sessão foi aceita e este computador é o controlador, conecta ao stream e abre o Viewer!
-        if (State = 'accepted') and FIsController and (FRemoteViewer = nil) then begin
+        if (State = 'accepted') and FIsController and (FRemoteViewer = nil) and not FStoppingSession then begin
           begin
             Grants := J.Arrays['granted_permissions'];
             FSessionCanControl := False;
@@ -1325,7 +1087,7 @@ begin
         end;
 
         // Se a sessão foi aceita e este computador é o host, garante que o stream server e a ponte estão ativos
-        if (State = 'accepted') and not FIsController then begin
+        if (State = 'accepted') and not FIsController and not FStoppingSession then begin
           if FStreamServer = nil then begin
             FStreamServer := TDeskStreamServer.Create(FStreamPort, FSessionCanControl, FSessionId, FToken);
             FStreamServer.OnLog := @HandleStreamLog;
@@ -1344,6 +1106,7 @@ begin
           FIsController := False;
           FActiveSessionPanel.Visible := False;
           StopStreaming;
+          NameRemote;
         end;
       end else begin
         FActiveSessionPanel.Visible := False;
@@ -1365,6 +1128,7 @@ begin
     end;
 
     opAcceptView, opAcceptControl: begin
+      FStoppingSession:=False;
       FSessionId := W.Data.Get('id', '');
       FActiveSessionText.Caption := 'Sessão: ' + W.Data.Get('state', '') + ' (Conectado)';
       FActiveSessionPanel.Visible := True;
@@ -1374,6 +1138,7 @@ begin
 
       // Armazena a permissão explicitamente decidida pelo usuário no consentimento
       FSessionCanControl := (W.Operation = opAcceptControl);
+      StartClipboard(W.Data);
 
       // Inicia servidor de captura de tela no Host com controle rigoroso e autenticação por token
       if FStreamServer = nil then begin
@@ -1403,6 +1168,7 @@ begin
       StopStreaming;
       FStatusMsgLabel.Caption := 'Sessão encerrada.';
       LogMsg('[SESSÃO] Sessão encerrada com sucesso.');
+      NameRemote;
     end;
 
     opHealth: begin
@@ -1422,19 +1188,25 @@ begin
         LogMsg(_T(strLogSentSuccess) + 'OK)');
     end;
   end;
+  LayoutModern(Self);
 
   // Processa operação do usuário que estava aguardando na fila
   if FHasPendingOp and not FClosing then
-  begin
-    FHasPendingOp := False;
-    Start(FPendingOp, FPendingId);
-  end;
+    Application.QueueAsyncCall(@ProcessPendingOperation,0);
+end;
+
+procedure TMainForm.ProcessPendingOperation(Data: PtrInt);
+var Operation: TOperation; Id: string;
+begin
+  if FClosing or FBusy or not FHasPendingOp then Exit;
+  Operation:=FPendingOp; Id:=FPendingId; FHasPendingOp:=False;
+  Start(Operation,Id);
 end;
 
 procedure TMainForm.AcceptControlClick(Sender: TObject);
 begin
   if FIncomingIds.Count > 0 then begin
-    LogMsg('Autorizando conexão com permissões completas (mouse e teclado)...');
+    LogMsg('Autorizando controle (mouse, teclado e area de transferencia solicitada)...');
     Start(opAcceptControl, FIncomingIds[0]);
   end;
 end;
@@ -1457,6 +1229,7 @@ end;
 
 procedure TMainForm.StopClick(Sender: TObject);
 begin
+  FStoppingSession:=True;
   StopStreaming;
   if FSessionId <> '' then begin
     LogMsg('Encerrando sessão ativa ' + FSessionId + '...');
@@ -1466,6 +1239,8 @@ end;
 
 procedure TMainForm.ViewerClosed(Sender: TObject);
 begin
+  FStoppingSession:=True;
+  TfRemoteViewer(Sender).DetachClients;
   LogMsg('[VIEWER] Janela do visualizador foi fechada.');
   FRemoteViewer := nil;
   StopStreaming;
@@ -1475,8 +1250,15 @@ end;
 
 procedure TMainForm.StopStreaming;
 begin
+  if FClipboardThread <> nil then begin
+    FClipboardThread.Terminate;
+    FClipboardThread.WaitFor;
+    FreeAndNil(FClipboardThread);
+    FDiscSubtitle.Caption:='Sincronização encerrada. Texto e arquivos durante a sessão autorizada.';
+  end;
   if FRemoteViewer <> nil then begin
     FRemoteViewer.OnCloseSession := nil;
+    FRemoteViewer.DetachClients;
     FRemoteViewer.Close;
     FRemoteViewer := nil;
   end;
@@ -1500,6 +1282,22 @@ begin
     FRelayHost.WaitFor;
     FreeAndNil(FRelayHost);
   end;
+end;
+
+procedure TMainForm.StartClipboard(Session: TJSONObject);
+var Permissions: TJSONArray; I: Integer;
+begin
+  if (Session = nil) or (FClipboardThread <> nil) or FStoppingSession then Exit;
+  Permissions := Session.Arrays['granted_permissions'];
+  if Permissions = nil then Exit;
+  for I := 0 to Permissions.Count - 1 do
+    if Permissions.Strings[I] = 'clipboard.sync' then begin
+      FClipboardThread := TDeskClipboardThread.Create(FURL, FToken, FSessionId, FAllowLocal);
+      FClipboardThread.OnLog := @HandleStreamLog;
+      FClipboardThread.Start;
+      Exit;
+    end;
+  FDiscSubtitle.Caption:='Área de transferência não autorizada nesta sessão.';
 end;
 
 procedure TMainForm.StartRelayStreaming;
@@ -1529,6 +1327,7 @@ end;
 procedure TMainForm.HandleStreamLog(Sender: TObject; const Msg: string);
 begin
   LogMsg(Msg);
+  if Pos('[CLIPBOARD]',Msg)>0 then FDiscSubtitle.Caption:=Copy(Msg,13,MaxInt);
   if (Pos('[STREAM CLIENT ERRO]', Msg) > 0) or (Pos('Falha ao conectar', Msg) > 0) or
     (Pos('[PONTE CLIENTE ERRO]', Msg) > 0) then begin
     SendFailureLogToServer('STREAM_ERROR', Msg);
@@ -1538,34 +1337,35 @@ begin
 end;
 
 procedure TMainForm.ApplyLanguage;
+  function Text(const PT, EN, ES: string): string;
+  begin case GetDeskLanguage of dlEnglish: Result:=EN; dlSpanish: Result:=ES; else Result:=PT; end; end;
 begin
-  Caption := _T(strAppTitle);
-  if FTabLabel <> nil then FTabLabel.Caption := _T(strTabNewConnection);
-  if FBtnSettings <> nil then FBtnSettings.Caption := _T(strBtnSettings);
-  if FBtnLang <> nil then FBtnLang.Caption := '🌐 ' + UpperCase(DeskLangToStr(GetDeskLanguage));
-  if FDeskTitle <> nil then FDeskTitle.Caption := _T(strThisDeskTitle);
-  if FDeskSubtitle <> nil then FDeskSubtitle.Caption := _T(strThisDeskSubtitle);
-  if FBtnRegister <> nil then FBtnRegister.Caption := _T(strBtnRegister);
-  if FRemoteTitle <> nil then FRemoteTitle.Caption := _T(strRemoteDeskTitle);
-  if FRemoteSubtitle <> nil then FRemoteSubtitle.Caption := _T(strRemoteDeskSubtitle);
-  if FTarget <> nil then FTarget.TextHint := _T(strTargetHint);
-  if FBtnConnect <> nil then FBtnConnect.Caption := _T(strBtnConnect);
-  if FBtnSaveFav <> nil then FBtnSaveFav.Caption := _T(strBtnSaveFav);
-  if FDiscTitle <> nil then FDiscTitle.Caption := _T(strDiscoveryTitle);
-  if FDiscSubtitle <> nil then FDiscSubtitle.Caption := _T(strDiscoverySubtitle);
-  if FRecentTitle <> nil then FRecentTitle.Caption := _T(strRecentTitle);
-  if FRecentHint <> nil then FRecentHint.Caption := _T(strRecentHint);
-  if FBtnAcceptControl <> nil then FBtnAcceptControl.Caption := _T(strBtnAcceptControl);
-  if FBtnAcceptView <> nil then FBtnAcceptView.Caption := _T(strBtnAcceptView);
-  if FBtnReject <> nil then FBtnReject.Caption := _T(strBtnReject);
-  if FBtnStop <> nil then FBtnStop.Caption := _T(strBtnEndSession);
-  if FLogTitleLabel <> nil then FLogTitleLabel.Caption := _T(strLogTitle);
-  if FBtnTestConn <> nil then FBtnTestConn.Caption := _T(strBtnTestConn);
-  if FBtnCopyLog <> nil then FBtnCopyLog.Caption := _T(strBtnCopyLog);
-  if FBtnClearLog <> nil then FBtnClearLog.Caption := _T(strBtnClearLog);
-  if FBtnSendLog <> nil then FBtnSendLog.Caption := _T(strBtnSendLog);
-  if FBannerTagLabel <> nil then FBannerTagLabel.Caption := _T(strBannerTagline);
-  if FBannerBuildLabel <> nil then FBannerBuildLabel.Caption := _T(strBannerBuild);
+  Caption := _T(strAppTitle); FTabLabel.Caption := 'MaurinDesk';
+  FHeading.Caption := Text('Conecte-se com facilidade','Connect with ease','Conéctese fácilmente');
+  FIntro.Caption := Text('Acesse outro computador ou compartilhe o seu com segurança.','Access another computer or securely share your own.','Acceda a otro equipo o comparta el suyo con seguridad.');
+  FBtnSettings.Caption := Text('Configurações','Settings','Configuración');
+  FBtnLang.Caption := UpperCase(DeskLangToStr(GetDeskLanguage));
+  FNavConnect.Caption := Text('Conexões','Connections','Conexiones');
+  FNavFavorites.Caption := Text('Favoritos','Favorites','Favoritos');
+  FNavHistory.Caption := Text('Histórico','History','Historial');
+  FDeskTitle.Caption := _T(strThisDeskTitle);
+  FDeskSubtitle.Caption := Text('Compartilhe esta chave com quem vai acessar seu computador.','Share this key with the person accessing your computer.','Comparta esta clave con quien accederá a su equipo.');
+  FBtnRegister.Caption := Text('Copiar chave','Copy key','Copiar clave');
+  FRemoteTitle.Caption := Text('Acessar outro computador','Access another computer','Acceder a otro equipo');
+  FRemoteSubtitle.Caption := Text('Chave do computador remoto','Remote computer key','Clave del equipo remoto');
+  FTarget.TextHint := '000 000 0000'; FBtnConnect.Caption := Text('Conectar  →','Connect  →','Conectar  →');
+  FBtnSaveFav.Caption := Text('☆  Salvar nos favoritos','☆  Save to favorites','☆  Guardar en favoritos');
+  FDiscTitle.Caption := Text('Área de transferência','Clipboard','Portapapeles');
+  if FClipboardThread=nil then FDiscSubtitle.Caption := Text('Texto e arquivos durante a sessão autorizada.','Text and files during the authorized session.','Texto y archivos durante la sesión autorizada.');
+  FRecentTitle.Caption := Text('Conexões recentes','Recent connections','Conexiones recientes');
+  if FNavigation=1 then FRecentTitle.Caption:=FNavFavorites.Caption else if FNavigation=2 then FRecentTitle.Caption:=FNavHistory.Caption;
+  FRecentHint.Caption := Text('Duplo clique para conectar','Double-click to connect','Doble clic para conectar');
+  FBtnAcceptControl.Caption := Text('Controle + área de transferência','Control + clipboard','Control + portapapeles');
+  FBtnAcceptView.Caption := _T(strBtnAcceptView); FBtnReject.Caption := _T(strBtnReject); FBtnStop.Caption := _T(strBtnEndSession);
+  FLogTitleLabel.Caption := Text('⌄  Diagnóstico da conexão','⌄  Connection diagnostics','⌄  Diagnóstico de conexión');
+  FBtnTestConn.Caption := _T(strBtnTestConn); FBtnCopyLog.Caption := _T(strBtnCopyLog);
+  FBtnClearLog.Caption := _T(strBtnClearLog); FBtnSendLog.Caption := Text('Enviar diagnóstico','Send diagnostics','Enviar diagnóstico');
+  FBannerBuildLabel.Caption := 'v'+DESK_VERSION; LayoutModern(Self);
 end;
 
 procedure TMainForm.BtnLangClick(Sender: TObject);
@@ -1606,40 +1406,19 @@ begin
 end;
 
 procedure TMainForm.SettingsClick(Sender: TObject);
-var
-  NewURL, PortChoice, LangChoice: string;
-  NewPort: Integer;
+var OldURL: string;
 begin
-  NewURL := InputBox(_T(strDialogSettingsTitle), _T(strDialogServerPrompt), FURL);
-  NewURL := Trim(NewURL);
-  if (NewURL <> '') and (NewURL <> FURL) then begin
-    FURL := NewURL;
-    SaveConfig;
-    UpdateServerLabels;
-    FProfile := IncludeTrailingPathDelimiter(GetAppConfigDir(False)) + MD5Print(MD5String(FURL)) + DirectorySeparator;
-    ForceDirectories(FProfile);
-    FIdentityFile := FProfile + 'identity.dat';
-    FToken := '';
-    FRawPublicKey := '';
-    FKeyTextLabel.Caption := '--- --- ---';
-    FSidebarStatus.Caption := _T(strStatusServerChanged);
-    LogMsg('[CONFIG] Servidor alterado para: ' + FURL);
-  end;
-
-  PortChoice := InputBox(_T(strDialogSettingsTitle), 'Porta TCP de Streaming P2P (padrão: 7071):', IntToStr(FStreamPort));
-  if TryStrToInt(Trim(PortChoice), NewPort) and (NewPort > 0) and (NewPort < 65536) then begin
-    if NewPort <> FStreamPort then begin
-      FStreamPort := NewPort;
-      SaveConfig;
-      LogMsg('[CONFIG] Porta de streaming alterada para: ' + IntToStr(FStreamPort));
+  if FSessionId<>'' then begin ShowMessage('Encerre a sessão antes de alterar as configurações.'); Exit; end;
+  OldURL:=FURL;
+  if FBusy then begin ShowMessage('Aguarde a comunicação atual terminar para alterar as configurações.'); Exit; end;
+  if EditDeskSettings(FSetMain) then begin
+    LoadConfig; ApplyLanguage; UpdateServerLabels;
+    if FUpdateTimer<>nil then FUpdateTimer.Enabled:=FSetMain.AutoUpdate;
+    if OldURL<>FURL then begin
+      FProfile:=IncludeTrailingPathDelimiter(GetAppConfigDir(False))+MD5Print(MD5String(FURL))+DirectorySeparator;
+      ForceDirectories(FProfile); FIdentityFile:=FProfile+'identity.dat'; FToken:=''; FRawPublicKey:='';
+      FKeyTextLabel.Caption:='--- --- ----'; LoadFavorites; Start(opRegister);
     end;
-  end;
-
-  LangChoice := InputBox(_T(strDialogLanguageTitle), _T(strDialogLanguagePrompt), DeskLangToStr(GetDeskLanguage));
-  if Trim(LangChoice) <> '' then begin
-    SetDeskLanguage(StrToDeskLang(LangChoice));
-    SaveConfig;
-    ApplyLanguage;
   end;
 end;
 
@@ -1664,7 +1443,7 @@ var
   Key, AliasName: string;
   Ini: TIniFile;
 begin
-  Key := FTarget.Text;
+  Key := StringReplace(Trim(FTarget.Text), ' ', '', [rfReplaceAll]);
   if not AIRemoteValidKey(Key) then begin
     LogMsg('[AVISO] Chave inválida para salvar favorito.');
     ShowMessage('Informe uma chave válida de 10 dígitos para salvar.');
@@ -1689,109 +1468,91 @@ begin
 end;
 
 procedure TMainForm.RebuildFavoriteCards;
-var
-  Ini: TIniFile;
-  Keys: TStringList;
-  I, CardX, CardY, CardW, CardH, Spacing: Integer;
-  CardPanel, BottomPanel: TPanel;
-  Thumb: TPaintBox;
-  LblKey, LblAlias, LblMenu: TLabel;
-  CardKey, CardAlias: string;
-begin
-  while FCardsScrollBox.ControlCount > 0 do
-    FCardsScrollBox.Controls[0].Free;
-
-  Ini := TIniFile.Create(FProfile + 'favorites.ini');
-  Keys := TStringList.Create;
-  try
-    Ini.ReadSection('favorites', Keys);
-    CardW := 190;
-    CardH := 148;
-    Spacing := 16;
-
-    if Keys.Count = 0 then begin
-      with TLabel.Create(FCardsScrollBox) do begin
-        Parent := FCardsScrollBox;
-        SetBounds(24, 20, 500, 30);
-        Caption := 'Nenhuma sessão recente. Digite uma chave e clique em "Salvar Favorito" ou "Conectar".';
-        Font.Color := RGBToColor(148, 163, 184);
-        Font.Size := 9;
-      end;
-      Exit;
-    end;
-
-    for I := 0 to Keys.Count - 1 do begin
-      CardKey := Keys[I];
-      CardAlias := Ini.ReadString('favorites', CardKey, CardKey);
-
-      CardX := 20 + I * (CardW + Spacing);
-      CardY := 10;
-
-      CardPanel := TPanel.Create(FCardsScrollBox);
-      CardPanel.Parent := FCardsScrollBox;
-      CardPanel.SetBounds(CardX, CardY, CardW, CardH);
-      CardPanel.BevelOuter := bvNone;
-      CardPanel.Color := clWhite;
-      CardPanel.Cursor := crHandPoint;
-      CardPanel.OnClick := @CardClick;
-      CardPanel.OnDblClick := @CardDblClick;
-      CardPanel.Hint := CardKey;
-
-      Thumb := TPaintBox.Create(CardPanel);
-      Thumb.Parent := CardPanel;
-      Thumb.SetBounds(0, 0, CardW, 95);
-      Thumb.OnPaint := @DrawCardThumbnail;
-      Thumb.OnClick := @CardClick;
-      Thumb.OnDblClick := @CardDblClick;
-      Thumb.Cursor := crHandPoint;
-      Thumb.Hint := CardKey;
-
-      BottomPanel := TPanel.Create(CardPanel);
-      BottomPanel.Parent := CardPanel;
-      BottomPanel.SetBounds(0, 95, CardW, 53);
-      BottomPanel.BevelOuter := bvNone;
-      BottomPanel.Color := clWhite;
-      BottomPanel.OnClick := @CardClick;
-      BottomPanel.OnDblClick := @CardDblClick;
-      BottomPanel.Cursor := crHandPoint;
-      BottomPanel.Hint := CardKey;
-
-      LblKey := TLabel.Create(BottomPanel);
-      LblKey.Parent := BottomPanel;
-      LblKey.SetBounds(10, 8, CardW - 35, 18);
-      LblKey.Caption := FormatDeskKey(CardKey);
-      LblKey.Font.Style := [fsBold];
-      LblKey.Font.Size := 10;
-      LblKey.Font.Color := RGBToColor(30, 41, 59);
-      LblKey.OnClick := @CardClick;
-      LblKey.OnDblClick := @CardDblClick;
-      LblKey.Cursor := crHandPoint;
-
-      LblAlias := TLabel.Create(BottomPanel);
-      LblAlias.Parent := BottomPanel;
-      LblAlias.SetBounds(10, 28, CardW - 35, 16);
-      LblAlias.Caption := CardAlias;
-      LblAlias.Font.Size := 8;
-      LblAlias.Font.Color := RGBToColor(100, 116, 139);
-      LblAlias.OnClick := @CardClick;
-      LblAlias.OnDblClick := @CardDblClick;
-      LblAlias.Cursor := crHandPoint;
-
-      LblMenu := TLabel.Create(BottomPanel);
-      LblMenu.Parent := BottomPanel;
-      LblMenu.SetBounds(CardW - 22, 16, 16, 20);
-      LblMenu.Caption := '⋮';
-      LblMenu.Font.Size := 12;
-      LblMenu.Font.Style := [fsBold];
-      LblMenu.Font.Color := RGBToColor(148, 163, 184);
-      LblMenu.Cursor := crHandPoint;
-      LblMenu.Hint := CardKey;
-      LblMenu.OnClick := @CardClick;
-    end;
-  finally
-    Keys.Free;
-    Ini.Free;
+var Favorites, History: TIniFile; Keys, Recent: TStringList;
+    I, Cols, CardW, X, Y: Integer; Card: TPanel; ThumbIcon: TPaintBox; AliasLabel, KeyLabel, StarLabel: TLabel;
+    Key, AliasName: string;
+  function LabelAt(const Caption: string; Left, Top, Width, Size: Integer; Bold: Boolean): TLabel;
+  begin
+    Result:=TLabel.Create(Card); Result.Parent:=Card; Result.AutoSize:=False; Result.SetBounds(Left,Top,Width,22);
+    Result.Caption:=Caption; Result.Font.Name:='Segoe UI'; Result.Font.Size:=Size;
+    Result.Font.Color:=RGBToColor(57,67,83); if Bold then Result.Font.Style:=[fsBold];
+    Result.Hint:=Key; Result.Cursor:=crHandPoint; Result.OnClick:=@CardClick; Result.OnDblClick:=@CardDblClick;
   end;
+begin
+  if FCardsScrollBox=nil then Exit;
+  while FCardsScrollBox.ControlCount>0 do FCardsScrollBox.Controls[0].Free;
+  Favorites:=TIniFile.Create(FProfile+'favorites.ini'); History:=TIniFile.Create(FProfile+'history.ini');
+  Keys:=TStringList.Create; Recent:=TStringList.Create;
+  try
+    if FNavigation<>2 then Favorites.ReadSection('favorites',Keys);
+    if FNavigation<>1 then begin
+      History.ReadSection('recent',Recent);
+      for I:=Recent.Count-1 downto 0 do if Keys.IndexOf(Recent[I])<0 then Keys.Add(Recent[I]);
+    end;
+    Cols:=FGridColumns; if Cols<1 then Cols:=1;
+    CardW:=(FContentArea.ClientWidth-56-(Cols-1)*14) div Cols;
+    if Keys.Count=0 then begin
+      with TLabel.Create(FCardsScrollBox) do begin
+        Parent:=FCardsScrollBox; AutoSize:=False; SetBounds(2,16,FContentArea.ClientWidth-72,48); WordWrap:=True;
+        Caption:='Seus computadores aparecerão aqui após uma conexão. Você também pode salvar uma chave nos favoritos.';
+        Font.Color:=RGBToColor(128,139,155); Font.Size:=10;
+      end; Exit;
+    end;
+    for I:=0 to Keys.Count-1 do begin
+      Key:=Keys[I]; AliasName:=History.ReadString('names',Key,Favorites.ReadString('favorites',Key,''));
+      if (AliasName='') or (AliasName=Key) then AliasName:=FormatDeskKey(Key);
+      X:=(I mod Cols)*(CardW+14); Y:=(I div Cols)*100;
+      Card:=TDeskCard.Create(FCardsScrollBox); Card.Parent:=FCardsScrollBox; Card.SetBounds(X,Y,CardW,86);
+      Card.Hint:=Key; Card.Cursor:=crHandPoint; Card.OnClick:=@CardClick; Card.OnDblClick:=@CardDblClick;
+      Card.PopupMenu:=FCardPopupMenu;
+      ThumbIcon:=TPaintBox.Create(Card); ThumbIcon.Parent:=Card; ThumbIcon.SetBounds(14,25,36,36); ThumbIcon.OnPaint:=@DrawCardThumbnail;
+      ThumbIcon.Hint:=Key; ThumbIcon.OnClick:=@CardClick; ThumbIcon.OnDblClick:=@CardDblClick;
+      AliasLabel:=LabelAt(AliasName,62,18,CardW-100,10,True);
+      AliasLabel.ShowHint:=True; AliasLabel.Hint:=Key;
+      KeyLabel:=LabelAt(FormatDeskKey(Key),62,46,CardW-88,9,False); KeyLabel.Font.Color:=RGBToColor(128,139,155);
+      StarLabel:=LabelAt('☆',CardW-30,24,24,15,False); StarLabel.OnClick:=@CardClick;
+      if Favorites.ValueExists('favorites',Key) then StarLabel.Caption:='★';
+    end;
+  finally Recent.Free; Keys.Free; History.Free; Favorites.Free; end;
+end;
+
+procedure TMainForm.RememberRemote;
+var History: TIniFile;
+begin
+  if (FSessionId='') or (FRecordedSession=FSessionId) or not AIRemoteValidKey(FSessionTargetKey) then Exit;
+  FRecordedSession:=FSessionId; FSessionWasAccepted:=True;
+  History:=TIniFile.Create(FProfile+'history.ini');
+  try History.WriteInt64('recent',FSessionTargetKey,DateTimeToUnix(Now,False)); History.UpdateFile;
+  finally History.Free; end;
+  RebuildFavoriteCards;
+end;
+
+procedure TMainForm.NameRemote;
+begin
+  if not FSessionWasAccepted or not AIRemoteValidKey(FSessionTargetKey) then Exit;
+  FNamePromptKey:=FSessionTargetKey; FSessionTargetKey:=''; FSessionWasAccepted:=False;
+  Application.QueueAsyncCall(@PromptRemoteName,0);
+end;
+
+procedure TMainForm.PromptRemoteName(Data: PtrInt);
+var History, Favorites: TIniFile; Key, AliasText: string;
+begin
+  if FClosing then Exit;
+  Key:=FNamePromptKey; FNamePromptKey:=''; if not AIRemoteValidKey(Key) then Exit;
+  History:=TIniFile.Create(FProfile+'history.ini'); Favorites:=TIniFile.Create(FProfile+'favorites.ini');
+  try
+    AliasText:=History.ReadString('names',Key,Favorites.ReadString('favorites',Key,'')); if AliasText=Key then AliasText:='';
+    if InputQuery('Identificar computador','Nome para '+FormatDeskKey(Key)+' (opcional; vazio mantém o número):',AliasText) then begin
+      AliasText:=Trim(AliasText); if Length(AliasText)>120 then AliasText:=Copy(AliasText,1,120);
+      if AliasText='' then History.DeleteKey('names',Key) else History.WriteString('names',Key,AliasText);
+      if Favorites.ValueExists('favorites',Key) then begin
+        if AliasText='' then Favorites.WriteString('favorites',Key,Key) else Favorites.WriteString('favorites',Key,AliasText);
+        Favorites.UpdateFile;
+      end;
+      History.UpdateFile;
+    end;
+  finally Favorites.Free; History.Free; end;
+  RebuildFavoriteCards;
 end;
 
 procedure TMainForm.CardClick(Sender: TObject);
@@ -1888,6 +1649,9 @@ procedure TMainForm.Closing(Sender: TObject; var CanClose: Boolean);
 var
   CloseSessionId: string;
 begin
+  if not FExitRequested and (FSetMain<>nil) and FSetMain.MinimizeToTray then begin
+    CanClose:=False; Hide; Exit;
+  end;
   FClosing := True;
   FTimer.Enabled := False;
   StopStreaming;

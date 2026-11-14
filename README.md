@@ -1,10 +1,10 @@
 # MaurinDesk
 
-Correção **0.6.4** disponível em [bin/MaurinDesk-0.6.4.exe](bin/MaurinDesk-0.6.4.exe), corrigindo JPEGs pretos na captura nativa do Windows. Atualizar o computador que compartilha a tela. Veja também [atualização e leitura dos logs](docs/13-diagnostico-comunicacao.md).
+**Versão 0.6.5:** novo layout, clipboard bidirecional de texto e arquivos, nomes no histórico, configurações em `fsetmain`, instalação por usuário, área do relógio e atualização automática pelo GitHub. Executável: [bin/MaurinDesk.exe](bin/MaurinDesk.exe). Veja [como usar e atualizar](docs/14-recursos-desktop.md).
 
 Acesso remoto assistido, inspirado no fluxo de uso do AnyDesk, com cliente desktop Lazarus/Free Pascal nativo e servidor PHP exclusivamente de APIs e sinalização/relay.
 
-**Estado atual (v0.6.2): Transmissão de tela em tempo real, controle remoto bidirecional autenticado, priorização de HTTPS Relay com fallback P2P (7071/8080/9876), validação estrita de permissões de entrada e regras automáticas de Windows Firewall.**
+**Estado atual (v0.6.5):** transmissão de tela e controle autenticado por HTTPS Relay/P2P, clipboard de texto e arquivos após consentimento, histórico com apelidos e atualização verificada por SHA-256. O nome distribuído é sempre `MaurinDesk.exe`.
 
 ## Funcionamento
 
@@ -26,7 +26,7 @@ Acesso remoto assistido, inspirado no fluxo de uso do AnyDesk, com cliente deskt
 
 ## Servidor Atualizado
 
-Servidor oficial: `https://maurinsoft.com.br/MaurinDesk/api/`. Copie os arquivos da pasta `server/api/` para `public_html/MaurinDesk/api/`. As migrações (`0.1` a `0.6`) são executadas e checadas de forma inteligente e idempotente, sem travamento desnecessário a cada requisição.
+Servidor oficial: `https://maurinsoft.com.br/MaurinDesk/api/`. Copie os arquivos da pasta `server/api/` para `public_html/MaurinDesk/api/`, preservando o `.env`. As migrações (`0.1` a `0.7`) são automáticas e idempotentes. A versão `0.7` da API é necessária para o clipboard.
 
 Veja também o [mapeamento do banco para a interface](docs/12-banco-interface.md).
 
@@ -61,3 +61,5 @@ O endereço oficial foi definido pelo proprietário. Sua disponibilidade e o sup
 ## Executável Windows
 
 A pasta [bin](bin/) contém o [MaurinDesk.exe](bin/MaurinDesk.exe) para Windows x64, com versão e SHA-256 em [manifest.json](bin/manifest.json).
+
+O [update.json](update.json) informa ao aplicativo qual versão está publicada na branch `fila`. Execute `./build.ps1` para compilar o nome padrão e atualizar os dois JSONs com o tamanho e o hash reais do executável.

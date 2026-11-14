@@ -4,8 +4,14 @@
   <Version Value="12"/>
   <General><Flags><MainUnitHasCreateFormStatements Value="True"/><MainUnitHasTitleStatement Value="True"/><MainUnitHasScaledStatement Value="False"/></Flags><MainUnit Value="0"/><Title Value="MaurinDesk"/></General>
   <BuildModes Count="1"><Item1 Name="Default" Default="True"/></BuildModes>
+  <VersionInfo>
+   <UseVersionInfo Value="True"/>
+   <MajorVersionNr Value="0"/><MinorVersionNr Value="6"/><RevisionNr Value="5"/><BuildNr Value="0"/>
+   <Language Value="0416"/>
+   <StringTable CompanyName="MaurinSoft" FileDescription="MaurinDesk - Acesso remoto assistido" ProductName="MaurinDesk" ProductVersion="0.6.5" OriginalFilename="MaurinDesk.exe"/>
+  </VersionInfo>
   <RequiredPackages Count="1"><Item1><PackageName Value="LCL"/></Item1></RequiredPackages>
-  <Units Count="9">
+  <Units Count="17">
    <Unit0><Filename Value="MaurinDesk.lpr"/><IsPartOfProject Value="True"/></Unit0>
    <Unit1><Filename Value="umain.pas"/><IsPartOfProject Value="True"/></Unit1>
    <Unit2><Filename Value="uDeskProtocol.pas"/><IsPartOfProject Value="True"/></Unit2>
@@ -15,11 +21,19 @@
    <Unit6><Filename Value="uDeskI18n.pas"/><IsPartOfProject Value="True"/></Unit6>
    <Unit7><Filename Value="uDeskFirewall.pas"/><IsPartOfProject Value="True"/></Unit7>
    <Unit8><Filename Value="uDeskRelay.pas"/><IsPartOfProject Value="True"/></Unit8>
+   <Unit9><Filename Value="uDeskHTTP.pas"/><IsPartOfProject Value="True"/></Unit9>
+   <Unit10><Filename Value="uDeskClipboard.pas"/><IsPartOfProject Value="True"/></Unit10>
+   <Unit11><Filename Value="uDeskClipboardData.pas"/><IsPartOfProject Value="True"/></Unit11>
+   <Unit12><Filename Value="uDeskUI.pas"/><IsPartOfProject Value="True"/></Unit12>
+   <Unit13><Filename Value="setmain.pas"/><IsPartOfProject Value="True"/></Unit13>
+   <Unit14><Filename Value="uDeskSettings.pas"/><IsPartOfProject Value="True"/></Unit14>
+   <Unit15><Filename Value="uDeskUpdate.pas"/><IsPartOfProject Value="True"/></Unit15>
+   <Unit16><Filename Value="uDeskInstall.pas"/><IsPartOfProject Value="True"/></Unit16>
   </Units>
  </ProjectOptions>
  <CompilerOptions>
   <Version Value="11"/>
-  <Target><Filename Value="../bin/MaurinDesk"/></Target>
+  <Target><Filename Value="../bin/MaurinDesk.exe"/></Target>
   <SearchPaths>
    <OtherUnitFiles Value="../../CHATGPT/pacote/AI Communication/AIRemoteDesktop"/>
    <UnitOutputDirectory Value="../build/desktop/$(TargetCPU)-$(TargetOS)"/>

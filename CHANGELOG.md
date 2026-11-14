@@ -1,10 +1,21 @@
 # Histórico
 
+## 0.6.5 — 14/11/2026
+- Layout claro com cartões, navegação entre conexões/favoritos/histórico, cópia de chave e diagnóstico recolhível; adaptação para janelas menores.
+- Clipboard bidirecional de texto Unicode, arquivos, múltiplos itens e pastas com envio em partes e verificação de integridade. Novas rotas autenticadas e migração de banco `0.7`.
+- Consentimento explícito `clipboard.sync`, incluído no aceite de controle; apenas visualização não compartilha clipboard. Prevenção de eco e preservação de cópias locais feitas durante o recebimento.
+- Nome opcional associado à chave ao encerrar a sessão. Sem nome, a chave permanece como identificação.
+- Adaptação de `TSetMain` para configurações persistentes em `Setmain.cfg`, mantendo tokens separados e importando o INI anterior.
+- Ícone na área do relógio, reabertura e saída pelo menu; opções de iniciar ao entrar no Windows e de instalação na pasta do usuário com atalho no menu Iniciar.
+- `update.json` publicado junto ao executável padrão. O aplicativo verifica versão numérica, origem fixa no GitHub, tamanho, SHA-256 e versão interna antes da substituição; aguarda o encerramento da sessão e preserva uma cópia anterior.
+- `build.ps1` mantém `bin/MaurinDesk.exe`, `bin/manifest.json` e `update.json` consistentes. Removidos nomes de executáveis e manifestos com sufixo de versão.
+- Testes de API/clipboard, esquema SQLite, pacote de arquivos Unicode/binários, configurações, atualização com substituição e reinício de executável de teste, e renderização do layout em dois tamanhos.
+
 ## 0.6.4 — 14/11/2026
 - Corrigida a geração de JPEGs pretos: as operações nativas GDI de captura e desenho do cursor não notificavam o bitmap LCL, deixando o cache de pixels desatualizado na compactação.
 - Sincronização das operações GDI e invalidação do cache após captura e antes da conversão para JPEG, nos fluxos relay e P2P.
 - Teste nativo `tests/capture_regression.lpi`: imagem conhecida convertida para JPEG e decodificada com verificação das cores. Antes da correção, retornava RGB 0,0,0; após, RGB 231,40,21 para RGB esperado 230,40,20.
-- Executável Windows x64: `bin/MaurinDesk-0.6.4.exe`. Atualizar o computador que compartilha a tela para corrigir a imagem enviada; recomendado usar a mesma versão nos dois participantes.
+- Executável Windows x64: `bin/MaurinDesk.exe`. Nome de distribuição fixo para todas as versões, com metadados em `bin/manifest.json`. Atualizar o computador que compartilha a tela para corrigir a imagem enviada; recomendado usar a mesma versão nos dois participantes.
 
 ## 0.6.3 — 14/11/2026
 - Diagnóstico PHP da sessão: IP público observado, IP local anunciado, presença, versão dos participantes e estado dos quadros, disponível aos dois participantes após o aceite.
@@ -13,7 +24,7 @@
 - Ponte HTTPS inicia independentemente do anúncio de porta P2P; visualizador respeita a permissão concedida.
 - Aviso de espera sem quadros, confirmação do primeiro JPEG mesmo com sequência diferente de 1 e tratamento de falhas de captura, compactação e envio de comandos.
 - Verificação de estrutura do banco antes de aceitar a versão como atual, restaurando tabelas ausentes da ponte.
-- Binário de correção em `bin/MaurinDesk-0.6.3.exe`, pois o executável padrão estava aberto durante a compilação.
+- Binário de correção Windows x64; a distribuição usa o nome fixo `bin/MaurinDesk.exe`.
 - Validação local: compilação Windows x64, testes de API/relay, migrações SQLite e fronteira HTTP. Conexão entre duas máquinas reais permanece pendente.
 
 ## 0.6.2 — 14/11/2026

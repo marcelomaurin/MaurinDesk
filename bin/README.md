@@ -1,6 +1,6 @@
 # Executáveis MaurinDesk
 
-- **MaurinDesk.exe** — Versão 0.6.2, Windows x64.
+- **MaurinDesk.exe** — Versão 0.6.5, Windows x64. Todas as versões usam este mesmo nome.
 - Compilado com Lazarus 4.6 / FPC 3.2.2 nativo (sem DLLs externas).
 - SHA-256 e metadados detalhados em [manifest.json](manifest.json).
 
@@ -12,3 +12,5 @@ Recursos disponíveis nesta versão:
 5. **Captura e Controle**: Renderização remota fluida com cursor visível na tela, injeção de mouse e teclado (com suporte a teclas estendidas), telemetria de primeiro quadro e diagnóstico integrado de falhas de envio.
 
 O teste de inicialização `--self-test` foi executado e validado com sucesso.
+
+Novo nesta versão: layout com diagnóstico recolhível; clipboard de texto, arquivos e pastas; nomes no histórico; configurações `TSetMain`; instalação por usuário; início com o Windows; área do relógio; atualizações do GitHub com SHA-256 e validação da versão do arquivo. Veja [orientações](../docs/14-recursos-desktop.md).
