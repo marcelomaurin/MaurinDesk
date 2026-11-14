@@ -1,11 +1,11 @@
 {
-  "version": "0.6.1",
+  "version": "0.6.2",
   "platform": "windows-x64",
   "filename": "MaurinDesk.exe",
-  "bytes": 26740913,
-  "sha256": "d7fe2ec743b551e83ce3fb7d387f696ce0aec56f6be82b88673e2bfc266e1960",
+  "bytes": 26739805,
+  "sha256": "42dd0a3799d2583f1445383909860110feaf59220de5e1085c517d66d9b1d060",
   "lazarus": "4.6",
   "fpc": "3.2.2",
-  "build_date": "2026-11-12",
-  "stage": "authenticated-p2p-handshake-permission-lock-nonblocking-close-sql-parser-fix"
+  "build_date": "2026-11-14",
+  "stage": "https-relay-priority-enforced-permissions-diagnostics"
 }

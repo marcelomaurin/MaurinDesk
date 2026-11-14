@@ -1,5 +1,19 @@
 # Histórico
 
+## 0.6.2 — 14/11/2026
+- Inicialização da visualização remota com prioridade no HTTPS Relay antes da tentativa P2P.
+- Aplicação rigorosa de autorizações de entrada (mouse e teclado) também no canal relay do servidor.
+- Proteção de todos os endpoints de relay por sessão ativa e permissão concedida de tela.
+- Registro em log do recebimento do primeiro frame de streaming e de falhas no envio da captura.
+- Atualização da versão do desktop para v0.6.2 nos idiomas PT, EN e ES, na barra de status e nos logs de inicialização.
+- Binário Windows x64 recompilado nativamente com Lazarus 4.6 / FPC 3.2.2 e manifesto atualizado.
+
+## 0.6.1 — 12/11/2026
+- Handshake obrigatório `PKT_HELLO` no canal P2P com conferência estrita de SessionId e token.
+- Descarte imediato e fechamento de conexões não autenticadas ou com permissões divergentes.
+- Compatibilidade do parser SQL com comentários multilinhas e sintaxe MariaDB/MySQL 8.
+
+
 ## Organização de publicação — 11/11/2026
 - server/ contém somente api/, sem subpastas internas e com todos os arquivos de execução.
 - Removidas a estrutura php/, CLI de migração e script de empacotamento do servidor.

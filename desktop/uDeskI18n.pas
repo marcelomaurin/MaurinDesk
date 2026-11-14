@@ -145,13 +145,13 @@ begin
   case CurrentLanguage of
     dlEnglish:
       case Id of
-        strAppTitle: Result := 'MaurinDesk v0.5.0 — Assisted Remote Connection';
+        strAppTitle: Result := 'MaurinDesk v0.6.2 — Assisted Remote Connection';
         strAppSubtitle: Result := 'Assisted and secure remote access.';
         strTabNewConnection: Result := 'New Connection';
         strBtnSettings: Result := '⚙ Settings';
-        strVersionBadge: Result := '● Software v0.5.0 (Build 2026-11-11)';
+        strVersionBadge: Result := '● Software v0.6.2 (Build 2026-11-14)';
         strBannerTagline: Result := 'Assisted and secure remote desktop.';
-        strBannerBuild: Result := 'Build 2026-11-11 | Stream Ready';
+        strBannerBuild: Result := 'Build 2026-11-14 | Stream Ready';
 
         strThisDeskTitle: Result := 'This Computer';
         strThisDeskSubtitle: Result := 'Your computer can be accessed at this address.';
@@ -222,13 +222,13 @@ begin
 
     dlSpanish:
       case Id of
-        strAppTitle: Result := 'MaurinDesk v0.5.0 — Conexión Remota Asistida';
+        strAppTitle: Result := 'MaurinDesk v0.6.2 — Conexión Remota Asistida';
         strAppSubtitle: Result := 'Acceso remoto asistido y seguro.';
         strTabNewConnection: Result := 'Nueva Conexión';
         strBtnSettings: Result := '⚙ Configuración';
-        strVersionBadge: Result := '● Software v0.5.0 (Build 2026-11-11)';
+        strVersionBadge: Result := '● Software v0.6.2 (Build 2026-11-14)';
         strBannerTagline: Result := 'Acceso remoto asistido y seguro.';
-        strBannerBuild: Result := 'Build 2026-11-11 | Stream Activo';
+        strBannerBuild: Result := 'Build 2026-11-14 | Stream Activo';
 
         strThisDeskTitle: Result := 'Este Equipo';
         strThisDeskSubtitle: Result := 'Su equipo puede ser accedido a través de esta clave.';
@@ -299,13 +299,13 @@ begin
 
   else // dlPortuguese (Default)
     case Id of
-      strAppTitle: Result := 'MaurinDesk v0.5.0 — Conexão Remota Assistida';
+      strAppTitle: Result := 'MaurinDesk v0.6.2 — Conexão Remota Assistida';
       strAppSubtitle: Result := 'Acesso remoto assistido e seguro.';
       strTabNewConnection: Result := 'Nova Conexão';
       strBtnSettings: Result := '⚙ Config Servidor';
-      strVersionBadge: Result := '● Software v0.5.0 (Build 2026-11-11)';
+      strVersionBadge: Result := '● Software v0.6.2 (Build 2026-11-14)';
       strBannerTagline: Result := 'Acesso remoto assistido e seguro.';
-      strBannerBuild: Result := 'Build 2026-11-11 | Stream Ativo';
+      strBannerBuild: Result := 'Build 2026-11-14 | Stream Ativo';
 
       strThisDeskTitle: Result := 'Este Computador';
       strThisDeskSubtitle: Result := 'Seu computador pode ser acessado por este endereço.';
