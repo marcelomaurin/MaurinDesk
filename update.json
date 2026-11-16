@@ -3,8 +3,8 @@
     "platform":  "windows-x64",
     "filename":  "MaurinDesk.exe",
     "download_url":  "https://raw.githubusercontent.com/marcelomaurin/MaurinDesk/fila/bin/MaurinDesk.exe",
-    "bytes":  29226706,
-    "sha256":  "81409549627797468491c0e04ce47fb78b47d8f94f3cc634654a5b9b47f2a066",
+    "bytes":  29491927,
+    "sha256":  "bd224bae48201582c76c23307e6e768858276ec2033c79f68e3b96336cef83f2",
     "build_date":  "2026-11-16",
     "minimum_api_schema":  "0.9",
     "release_notes":  "Transferir arquivos acessivel na barra responsiva do visualizador e na sessao ativa, com envio e recebimento para a pasta escolhida."

@@ -397,6 +397,8 @@ final class Api {
             $id=$d['id']; $key=$d['public_key'];
             $this->run('UPDATE devices SET token_hash=?,token_expires=?,last_seen=?,platform=?,app_version=? WHERE id=?',
                 [hash('sha256',$token),$exp,$this->now,$platform,$version,$id]);
+            $this->run("UPDATE sessions SET state='closed',ended_at=?,reason='host_reregistered' WHERE host_id=? AND state IN ('accepted','connecting','active')",
+                [$this->now,$id]);
         } else {
             $id=self::uuid();
             do {
@@ -570,8 +572,8 @@ final class Api {
                             $granted=$this->permissions($body['granted_permissions']??null);
                             if (array_diff($granted,json_decode($s['requested'],true)))
                                 $this->fail(400,'VALIDATION_ERROR','Permissão não solicitada.');
-                            if ($this->run("SELECT id FROM sessions WHERE host_id=? AND state IN ('accepted','connecting','active')",
-                                [$device['id']])->fetch()) $this->fail(409,'HOST_BUSY','Host ocupado.');
+                            if ($this->run("SELECT id FROM sessions WHERE host_id=? AND state IN ('accepted','connecting','active') AND expires_at>?",
+                                [$device['id'],$this->now])->fetch()) $this->fail(409,'HOST_BUSY','Host ocupado.');
                         }
                     }
                     $expires=$state==='accepted'?$this->now+600:(int)$s['expires_at'];
