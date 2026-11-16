@@ -20,6 +20,7 @@ const
   PKT_MOUSE_DOWN  = $11; // Button: Byte, NormX: Word, NormY: Word
   PKT_MOUSE_UP    = $12; // Button: Byte, NormX: Word, NormY: Word
   PKT_MOUSE_WHEEL = $13; // Delta: SmallInt
+  PKT_SELECT_MONITOR = $14; // Button: Byte (MonitorIndex)
   PKT_KEY_DOWN    = $20; // KeyCode: Word
   PKT_KEY_UP      = $21; // KeyCode: Word
   PKT_PING        = $30;

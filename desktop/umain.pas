@@ -5,7 +5,7 @@ uses Classes, SysUtils, DateUtils, Forms, Controls, StdCtrls, ExtCtrls, Dialogs,
   Graphics, Menus, Clipbrd, IniFiles, md5, LCLIntf,
   fpjson, jsonparser, airemoteidentity, airemotesignaling,
   uDeskProtocol, uScreenCapture, uDeskStream, uRemoteViewer, uDeskRelay, uDeskI18n, uDeskFirewall,
-  uDeskFiles, uDeskFileManager, uDeskHTTP, uDeskClipboard, uDeskUI, setmain, uDeskSettings, uDeskUpdate, uDeskMonitorBar;
+  uDeskFiles, uDeskFileManager, uDeskHTTP, uDeskClipboard, uDeskUI, setmain, uDeskSettings, uDeskUpdate;
 
 type
   TMainForm = class;
@@ -47,7 +47,6 @@ type
     FFiles: TDeskFiles;
     FFileManager: TDeskFileManager;
     FRemoteViewer: TfRemoteViewer;
-    FMonitorBar: TDeskMonitorBar;
     FIsController: Boolean;
     FSessionCanControl: Boolean;
     FHasPendingOp: Boolean;
@@ -207,8 +206,6 @@ type
     procedure Closing(Sender: TObject; var CanClose: Boolean);
     procedure ViewerClosed(Sender: TObject);
     procedure StopStreaming;
-    procedure ShowMonitorBarIfNeeded;
-    procedure MonitorSelectionChanged(Sender: TObject; MonitorIndex: Integer; const Description: string);
     procedure StartRelayStreaming;
     procedure StartClipboard(Session: TJSONObject);
     procedure StartFiles(Session: TJSONObject);
@@ -1199,7 +1196,6 @@ begin
             FRelayHost.Start;
             LogMsg('[PONTE HOST] Transmissão em Modo Ponte ativada em segundo plano.');
           end;
-          ShowMonitorBarIfNeeded;
         end;
 
         if (State = 'closed') or (State = 'expired') or (State = 'rejected') or (State = 'cancelled') then begin
@@ -1259,7 +1255,6 @@ begin
         FRelayHost.Start;
         LogMsg('[PONTE HOST] Transmissão em Modo Ponte ativada em segundo plano.');
       end;
-      ShowMonitorBarIfNeeded;
     end;
 
     opReject: begin
@@ -1358,27 +1353,11 @@ begin
     Start(opClose, FSessionId);
 end;
 
-procedure TMainForm.ShowMonitorBarIfNeeded;
-begin
-  if GetCaptureMonitorCount <= 1 then Exit;
-  if FMonitorBar = nil then begin
-    FMonitorBar := TDeskMonitorBar.CreateBar(Self);
-    FMonitorBar.OnMonitorChanged := @MonitorSelectionChanged;
-  end;
-  FMonitorBar.ShowIfMultiMonitor;
-end;
-
-procedure TMainForm.MonitorSelectionChanged(Sender: TObject; MonitorIndex: Integer; const Description: string);
-begin
-  LogMsg('[MONITOR] Captura selecionada: ' + Description);
-end;
-
 procedure TMainForm.StopStreaming;
 begin
   if FStoppingStreams then Exit;
   FStoppingStreams:=True;
   try
-  if FMonitorBar <> nil then FMonitorBar.HideBar;
   if FFileManager<>nil then begin FFileManager.Bind(nil); FreeAndNil(FFileManager); end;
   if FFiles<>nil then begin FFiles.OnEvent:=nil; FFiles.Terminate; FFiles.WaitFor; FreeAndNil(FFiles); end;
   if FClipboardThread <> nil then begin

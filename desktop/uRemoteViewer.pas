@@ -29,6 +29,11 @@ type
     FCloseReason: string;
     FConnDot: TPaintBox;
     FStatusLabel: TLabel;
+    FMonitorLabel: TLabel;
+    FMonitorCombo: TComboBox;
+    FRemoteMonitorCount: Integer;
+    FRemoteMonitorIndex: Integer;
+    FUpdatingMonitorCombo: Boolean;
     FFPSLabel: TLabel;
     FBtnFit: TSpeedButton;
     FBtnFullScreen: TSpeedButton;
@@ -45,6 +50,8 @@ type
     FOnCloseSession: TNotifyEvent;
     procedure ConnDotPaint(Sender: TObject);
     procedure CommTimerTick(Sender: TObject);
+    procedure MonitorComboChange(Sender: TObject);
+    procedure HandleMonitorInfo(Sender: TObject; MonitorCount, ActiveMonitor: Integer);
     procedure PaintBoxPaint(Sender: TObject);
     procedure PaintBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -128,6 +135,22 @@ begin
   FStatusLabel.Font.Style := [fsBold];
   FStatusLabel.Caption := _T(strViewerConnectedTo) + ARemoteKey;
 
+  FRemoteMonitorCount := 1;
+  FRemoteMonitorIndex := 0;
+  FMonitorLabel := TLabel.Create(Self);
+  FMonitorLabel.Parent := FTopBar;
+  FMonitorLabel.Font.Color := $CDD6F4;
+  FMonitorLabel.Font.Style := [fsBold];
+  FMonitorLabel.Caption := 'Monitor:';
+  FMonitorLabel.Visible := False;
+
+  FMonitorCombo := TComboBox.Create(Self);
+  FMonitorCombo.Parent := FTopBar;
+  FMonitorCombo.Style := csDropDownList;
+  FMonitorCombo.TabStop := False;
+  FMonitorCombo.Visible := False;
+  FMonitorCombo.OnChange := @MonitorComboChange;
+
   FHasCommError := False;
   FErrorStartTick := 0;
   FCommTimer := TTimer.Create(Self);
@@ -201,15 +224,24 @@ begin
   OnShow:=@ViewerShown; OnDeactivate:=@ViewerDeactivated;
 
   if FStreamClient <> nil then
+  begin
     FStreamClient.OnFrame := @HandleFrameReceived;
+    FStreamClient.OnMonitorInfo := @HandleMonitorInfo;
+  end;
 end;
 
 destructor TfRemoteViewer.Destroy;
 begin
   if FStreamClient <> nil then
+  begin
     FStreamClient.OnFrame := nil;
+    FStreamClient.OnMonitorInfo := nil;
+  end;
   if FRelayClient <> nil then
+  begin
     FRelayClient.OnFrame := nil;
+    FRelayClient.OnMonitorInfo := nil;
+  end;
   if FRemoteBmp <> nil then
     FreeAndNil(FRemoteBmp);
   inherited Destroy;
@@ -221,6 +253,7 @@ begin
   if FRelayClient <> nil then
   begin
     FRelayClient.OnFrame := @HandleFrameReceived;
+    FRelayClient.OnMonitorInfo := @HandleMonitorInfo;
     FErrorMessage := '';
     FStatusLabel.Caption := 'Aguardando primeira imagem de ' + FRemoteKey + ' (Ponte HTTPS)';
     FStatusLabel.Font.Color := RGBToColor(59, 130, 246);
@@ -233,8 +266,8 @@ end;
 procedure TfRemoteViewer.DetachClients;
 begin
   ReleaseRemoteKeys;
-  if FRelayClient<>nil then FRelayClient.OnFrame:=nil;
-  if FStreamClient<>nil then FStreamClient.OnFrame:=nil;
+  if FRelayClient<>nil then begin FRelayClient.OnFrame:=nil; FRelayClient.OnMonitorInfo:=nil; end;
+  if FStreamClient<>nil then begin FStreamClient.OnFrame:=nil; FStreamClient.OnMonitorInfo:=nil; end;
   FRelayClient:=nil; FStreamClient:=nil;
 end;
 
@@ -307,6 +340,66 @@ begin
   NormX := Round((RelX / (R.Right - R.Left)) * 65535.0);
   NormY := Round((RelY / (R.Bottom - R.Top)) * 65535.0);
   Result := True;
+end;
+
+procedure TfRemoteViewer.MonitorComboChange(Sender: TObject);
+begin
+  if FUpdatingMonitorCombo or (FMonitorCombo.ItemIndex < 0) then Exit;
+  FRemoteMonitorIndex := FMonitorCombo.ItemIndex;
+  if FRelayClient <> nil then
+    FRelayClient.SendSelectMonitor(FRemoteMonitorIndex)
+  else if FStreamClient <> nil then
+    FStreamClient.SendSelectMonitor(FRemoteMonitorIndex);
+  ViewerShown(Self);
+end;
+
+procedure TfRemoteViewer.HandleMonitorInfo(Sender: TObject; MonitorCount, ActiveMonitor: Integer);
+var
+  I: Integer;
+begin
+  if MonitorCount <= 1 then
+  begin
+    FRemoteMonitorCount := 1;
+    FRemoteMonitorIndex := 0;
+    if FMonitorCombo.Visible then
+    begin
+      FMonitorLabel.Visible := False;
+      FMonitorCombo.Visible := False;
+      LayoutToolbar(Self);
+    end;
+    Exit;
+  end;
+
+  FUpdatingMonitorCombo := True;
+  try
+    if (MonitorCount <> FRemoteMonitorCount) or (FMonitorCombo.Items.Count <> MonitorCount) then
+    begin
+      FMonitorCombo.Items.BeginUpdate;
+      try
+        FMonitorCombo.Items.Clear;
+        for I := 1 to MonitorCount do
+          FMonitorCombo.Items.Add('Monitor ' + IntToStr(I));
+      finally
+        FMonitorCombo.Items.EndUpdate;
+      end;
+      FRemoteMonitorCount := MonitorCount;
+    end;
+    if (ActiveMonitor >= 0) and (ActiveMonitor < FMonitorCombo.Items.Count) then
+    begin
+      FRemoteMonitorIndex := ActiveMonitor;
+      if FMonitorCombo.ItemIndex <> ActiveMonitor then
+        FMonitorCombo.ItemIndex := ActiveMonitor;
+    end;
+  finally
+    FUpdatingMonitorCombo := False;
+  end;
+
+  if not FMonitorCombo.Visible then
+  begin
+    FMonitorLabel.Visible := True;
+    FMonitorCombo.Visible := True;
+    LayoutToolbar(Self);
+  end;
 end;
 
 procedure TfRemoteViewer.ConnDotPaint(Sender: TObject);
@@ -509,13 +602,22 @@ end;
 procedure TfRemoteViewer.SetTransferStatus(const Msg: string);
 begin FTransferStatus.Caption:=Msg; end;
 procedure TfRemoteViewer.LayoutToolbar(Sender: TObject);
-var W: Integer;
+var W, MonX: Integer;
 begin
   if FBtnFiles=nil then Exit;
   FTopBar.Height:=82;
   FConnDot.SetBounds(12,14,14,14);
-  FStatusLabel.AutoSize:=False; FStatusLabel.SetBounds(32,10,FTopBar.ClientWidth div 2-40,24);
-  FFPSLabel.AutoSize:=False; FFPSLabel.SetBounds(FTopBar.ClientWidth div 2,10,FTopBar.ClientWidth div 2-12,24);
+  if FMonitorCombo.Visible then begin
+    MonX := FTopBar.ClientWidth - 360;
+    if MonX < 220 then MonX := 220;
+    FStatusLabel.AutoSize:=False; FStatusLabel.SetBounds(32,10,MonX-40,24);
+    FMonitorLabel.SetBounds(MonX,12,56,20);
+    FMonitorCombo.SetBounds(MonX+58,7,130,26);
+    FFPSLabel.AutoSize:=False; FFPSLabel.SetBounds(MonX+196,10,FTopBar.ClientWidth-MonX-208,24);
+  end else begin
+    FStatusLabel.AutoSize:=False; FStatusLabel.SetBounds(32,10,FTopBar.ClientWidth div 2-40,24);
+    FFPSLabel.AutoSize:=False; FFPSLabel.SetBounds(FTopBar.ClientWidth div 2,10,FTopBar.ClientWidth div 2-12,24);
+  end;
   FFPSLabel.Alignment:=taRightJustify;
   W:=(FTopBar.ClientWidth-40) div 4;
   FBtnFiles.SetBounds(8,40,W,32);

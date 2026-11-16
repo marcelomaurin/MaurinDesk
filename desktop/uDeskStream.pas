@@ -15,6 +15,7 @@ type
   TStreamLogEvent = procedure(Sender: TObject; const Msg: string) of object;
   TFallbackRelayEvent = procedure(Sender: TObject) of object;
   TPortSuccessEvent = procedure(Sender: TObject; APort: Integer) of object;
+  TMonitorInfoEvent = procedure(Sender: TObject; MonitorCount, ActiveMonitor: Integer) of object;
 
   { Servidor de streaming do Host: captura a tela e recebe controles }
   TDeskStreamServer = class(TThread)
@@ -62,7 +63,10 @@ type
     FOnLog: TStreamLogEvent;
     FOnFallbackToRelay: TFallbackRelayEvent;
     FOnPortSuccess: TPortSuccessEvent;
+    FOnMonitorInfo: TMonitorInfoEvent;
     FSyncPort: Integer;
+    FSyncMonitorCount: Integer;
+    FSyncMonitorIndex: Integer;
     FSyncLogMsg: string;
     FSendLock: TRTLCriticalSection;
     procedure Log(const S: string);
@@ -83,12 +87,14 @@ type
     function SendMouseButton(Button: Byte; IsDown: Boolean; NormX, NormY: Word): Boolean;
     function SendMouseWheel(Delta: SmallInt): Boolean;
     function SendKeyEvent(VirtualKey: Word; IsDown: Boolean): Boolean;
+    function SendSelectMonitor(MonitorIndex: Integer): Boolean;
     property Connected: Boolean read FConnected;
     property CanControl: Boolean read FCanControl;
     property OnFrame: TFrameEvent read FOnFrame write FOnFrame;
     property OnLog: TStreamLogEvent read FOnLog write FOnLog;
     property OnFallbackToRelay: TFallbackRelayEvent read FOnFallbackToRelay write FOnFallbackToRelay;
     property OnPortSuccess: TPortSuccessEvent read FOnPortSuccess write FOnPortSuccess;
+    property OnMonitorInfo: TMonitorInfoEvent read FOnMonitorInfo write FOnMonitorInfo;
   end;
 
 function GetLocalIPAddress: string;
@@ -330,6 +336,11 @@ begin
         if RecvAll(FClientSocket, WheelDelta, SizeOf(SmallInt)) then
           InjectMouseWheel(WheelDelta);
       end;
+      PKT_SELECT_MONITOR:
+      begin
+        if RecvAll(FClientSocket, MousePkt, SizeOf(TMousePacket)) then
+          SetCaptureMonitorIndex(MousePkt.Button);
+      end;
       PKT_KEY_DOWN:
       begin
         if RecvAll(FClientSocket, KeyPkt, SizeOf(TKeyPacket)) then
@@ -371,7 +382,7 @@ var
   TimeVal: TTimeVal;
   PortAlreadyBound: Boolean;
   HelloPkt: THelloPacket;
-  RecvSessionId, RecvToken: string;
+  RecvSessionId, RecvToken, RawJpeg: string;
   GrantedControlByte: Byte;
 begin
   if WSAStartup($0202, WSAData) <> 0 then Exit;
@@ -533,23 +544,31 @@ begin
           ProcessClientCommands;
 
           // Captura a tela e comprime em JPEG
+          // Captura a tela e comprime em JPEG
           if CaptureScreenBitmap(Bmp) then
           begin
             try
               JpegStream.Clear;
               CompressBitmapToJpegStream(Bmp, JpegStream, FQuality);
+              SetLength(RawJpeg, JpegStream.Size);
+              if JpegStream.Size > 0 then
+              begin
+                JpegStream.Position := 0;
+                JpegStream.ReadBuffer(RawJpeg[1], JpegStream.Size);
+              end;
+              RawJpeg := InjectMonitorMetaIntoJpeg(RawJpeg, GetCaptureMonitorCount, GetCaptureMonitorIndex);
 
               Inc(FrameCounter);
               Hdr.FrameId := FrameCounter;
               Hdr.Width := Bmp.Width;
               Hdr.Height := Bmp.Height;
-              Hdr.JpegSize := JpegStream.Size;
+              Hdr.JpegSize := Length(RawJpeg);
 
               // Envia pacote do quadro: Magic (4) + Tipo (1) + Header (12) + Bytes JPEG
               if not SendAll(FClientSocket, Magic, SizeOf(Magic)) then Break;
               if not SendAll(FClientSocket, PktType, SizeOf(PktType)) then Break;
               if not SendAll(FClientSocket, Hdr, SizeOf(Hdr)) then Break;
-              if not SendAll(FClientSocket, JpegStream.Memory^, JpegStream.Size) then Break;
+              if not SendAll(FClientSocket, RawJpeg[1], Length(RawJpeg)) then Break;
 
               if FrameCounter = 1 then
                 Log('[STREAM SERVER] Transmitindo quadros da tela (' + IntToStr(Bmp.Width) + 'x' + IntToStr(Bmp.Height) + ', qualidade ' + IntToStr(FQuality) + '%)...');
@@ -765,6 +784,8 @@ end;
 
 procedure TDeskStreamClient.SyncFrame;
 begin
+  if Assigned(FOnMonitorInfo) and (FSyncMonitorCount > 0) then
+    FOnMonitorInfo(Self, FSyncMonitorCount, FSyncMonitorIndex);
   if Assigned(FOnFrame) and (FLatestBmp <> nil) then
     FOnFrame(Self, FLatestBmp, FLatestFrameId);
 end;
@@ -779,7 +800,7 @@ var
   Jpg: TJPEGImage;
   FirstFrameLogged: Boolean;
   IPList: TStringList;
-  CandidateIP: string;
+  CandidateIP, RawJpeg: string;
   CandidatePorts: array[0..2] of Integer;
   PIdx, I, ConnectedPort, OptVal: Integer;
   HelloPkt: THelloPacket;
@@ -934,6 +955,11 @@ begin
           JpegStream.SetSize(Hdr.JpegSize);
           if not RecvAll(JpegStream.Memory^, Hdr.JpegSize) then Break;
 
+          SetLength(RawJpeg, Hdr.JpegSize);
+          if Hdr.JpegSize > 0 then
+            Move(JpegStream.Memory^, RawJpeg[1], Hdr.JpegSize);
+          ExtractMonitorMetaFromJpeg(RawJpeg, FSyncMonitorCount, FSyncMonitorIndex);
+
           // Decodifica JPEG e atualiza o bitmap
           JpegStream.Position := 0;
           try
@@ -1039,6 +1065,28 @@ begin
     Pkt.Reserved := 0;
     if SendAll(PktType, 1) then
       Result := SendAll(Pkt, SizeOf(TKeyPacket));
+  finally
+    LeaveCriticalSection(FSendLock);
+  end;
+end;
+
+function TDeskStreamClient.SendSelectMonitor(MonitorIndex: Integer): Boolean;
+var
+  PktType: Byte;
+  Pkt: TMousePacket;
+begin
+  Result := False;
+  if not FConnected then Exit;
+  if MonitorIndex < 0 then MonitorIndex := 0;
+  if MonitorIndex > 255 then MonitorIndex := 255;
+  EnterCriticalSection(FSendLock);
+  try
+    PktType := PKT_SELECT_MONITOR;
+    Pkt.Button := Byte(MonitorIndex);
+    Pkt.NormX := 0;
+    Pkt.NormY := 0;
+    if SendAll(PktType, 1) then
+      Result := SendAll(Pkt, SizeOf(TMousePacket));
   finally
     LeaveCriticalSection(FSendLock);
   end;

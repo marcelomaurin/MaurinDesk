@@ -11,6 +11,7 @@ uses
 type
   TRelayLogEvent = procedure(Sender: TObject; const Msg: string) of object;
   TRelayFrameEvent = procedure(Sender: TObject; FrameBmp: Graphics.TBitmap; FrameId: Cardinal) of object;
+  TRelayMonitorInfoEvent = procedure(Sender: TObject; MonitorCount, ActiveMonitor: Integer) of object;
 
   { Host Relay: captura quadros da tela e envia ao servidor como ponte }
   TDeskRelayHost = class(TThread)
@@ -50,6 +51,9 @@ type
     FLock: TRTLCriticalSection;
     FOnLog: TRelayLogEvent;
     FOnFrame: TRelayFrameEvent;
+    FOnMonitorInfo: TRelayMonitorInfoEvent;
+    FSyncMonitorCount: Integer;
+    FSyncMonitorIndex: Integer;
     FSyncMsg: string;
     procedure Log(const S: string);
     procedure DoSyncLog;
@@ -65,8 +69,10 @@ type
     procedure SendMouseButton(Button: Byte; IsDown: Boolean; NormX, NormY: Word);
     procedure SendMouseWheel(Delta: SmallInt);
     procedure SendKey(KeyCode: Word; IsDown: Boolean);
+    procedure SendSelectMonitor(MonitorIndex: Integer);
     property OnLog: TRelayLogEvent read FOnLog write FOnLog;
     property OnFrame: TRelayFrameEvent read FOnFrame write FOnFrame;
+    property OnMonitorInfo: TRelayMonitorInfoEvent read FOnMonitorInfo write FOnMonitorInfo;
   end;
 
 implementation
@@ -158,6 +164,7 @@ begin
             if JpegStream.Size > 0 then
             begin
               Move(JpegStream.Memory^, RawBytes[1], JpegStream.Size);
+              RawBytes := InjectMonitorMetaIntoJpeg(RawBytes, GetCaptureMonitorCount, GetCaptureMonitorIndex);
               Base64Data := EncodeStringBase64(RawBytes);
 
               // Envia quadro à ponte no servidor
@@ -240,6 +247,10 @@ begin
                   KeyCode := EvObj.Get('key', 0);
                   IsDown := EvObj.Get('down', true);
                   InjectKeyEvent(Word(KeyCode), IsDown);
+                end
+                else if EvType = 'monitor' then
+                begin
+                  SetCaptureMonitorIndex(EvObj.Get('index', 0));
                 end;
               end;
             end;
@@ -310,6 +321,8 @@ end;
 
 procedure TDeskRelayClient.DoSyncFrame;
 begin
+  if Assigned(FOnMonitorInfo) and (FSyncMonitorCount > 0) then
+    FOnMonitorInfo(Self, FSyncMonitorCount, FSyncMonitorIndex);
   if Assigned(FOnFrame) then
     FOnFrame(Self, FSyncBmp, FSyncFrameId);
 end;
@@ -377,6 +390,19 @@ begin
   end;
 end;
 
+procedure TDeskRelayClient.SendSelectMonitor(MonitorIndex: Integer);
+var
+  Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create(['type', 'monitor', 'index', MonitorIndex]);
+  EnterCriticalSection(FLock);
+  try
+    FInputQueue.Add(Obj);
+  finally
+    LeaveCriticalSection(FLock);
+  end;
+end;
+
 procedure TDeskRelayClient.Execute;
 var
   Client: TAIRemoteSignalingClient;
@@ -436,6 +462,7 @@ begin
 
               if Length(RawBytes) > 0 then
               begin
+                ExtractMonitorMetaFromJpeg(RawBytes, FSyncMonitorCount, FSyncMonitorIndex);
                 JpegStream := TMemoryStream.Create;
                 Jpg := TJPEGImage.Create;
                 try

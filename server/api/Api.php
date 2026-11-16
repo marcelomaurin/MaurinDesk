@@ -325,16 +325,19 @@ final class Api {
         if ($session['requester_id'] !== $deviceId) $this->fail(403, 'FORBIDDEN', 'Apenas o controlador envia comandos.');
         $this->requireRelaySession($session, 'screen.view');
         $granted = json_decode($session['granted'], true) ?: [];
-        if (!in_array('input.mouse', $granted, true) && !in_array('input.keyboard', $granted, true))
-            $this->fail(403, 'FORBIDDEN', 'Sessao autorizada apenas para visualizacao.');
         $events = $body['events'] ?? [];
         if (!is_array($events)) $this->fail(400, 'VALIDATION_ERROR', 'Array de eventos esperado.');
         foreach ($events as $ev) {
             if (!is_array($ev)) $this->fail(400, 'VALIDATION_ERROR', 'Evento invalido.');
             $type = $ev['type'] ?? '';
-            $permission = ($type === 'key') ? 'input.keyboard' : 'input.mouse';
-            if (!in_array($type, ['move', 'button', 'wheel', 'key'], true) || !in_array($permission, $granted, true))
-                $this->fail(403, 'FORBIDDEN', 'Comando nao autorizado para esta sessao.');
+            if ($type === 'monitor') {
+                if (!in_array('screen.view', $granted, true))
+                    $this->fail(403, 'FORBIDDEN', 'Comando nao autorizado para esta sessao.');
+            } else {
+                $permission = ($type === 'key') ? 'input.keyboard' : 'input.mouse';
+                if (!in_array($type, ['move', 'button', 'wheel', 'key'], true) || !in_array($permission, $granted, true))
+                    $this->fail(403, 'FORBIDDEN', 'Comando nao autorizado para esta sessao.');
+            }
             $this->run('INSERT INTO session_relay_inputs(session_id, event_data, created_at) VALUES(?,?,?)',
                 [$session['id'], json_encode($ev), $this->now]);
         }

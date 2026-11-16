@@ -19,6 +19,8 @@ function GetCaptureMonitorIndex: Integer;
 procedure SetCaptureMonitorIndex(Index: Integer);
 function GetCaptureMonitorCaption(Index: Integer): string;
 function GetCaptureMonitorBounds(Index: Integer; out R: TRect): Boolean;
+function InjectMonitorMetaIntoJpeg(const JpegBytes: string; MonitorCount, ActiveMonitor: Integer): string;
+procedure ExtractMonitorMetaFromJpeg(const JpegBytes: string; out MonitorCount, ActiveMonitor: Integer);
 
 { Converte um TBitmap em fluxo JPEG com compressão configurável (padrão 65%) }
 procedure CompressBitmapToJpegStream(Bmp: Graphics.TBitmap; Stream: TStream; Quality: Integer = 65);
@@ -322,5 +324,44 @@ end;
 begin
 end;
 {$ENDIF}
+
+function InjectMonitorMetaIntoJpeg(const JpegBytes: string; MonitorCount, ActiveMonitor: Integer): string;
+var
+  Payload, Segment: string;
+  SegLen: Integer;
+begin
+  if (Length(JpegBytes) < 2) or (JpegBytes[1] <> #$FF) or (JpegBytes[2] <> #$D8) then
+  begin
+    Result := JpegBytes;
+    Exit;
+  end;
+  Payload := Format('MDSKMON:%d:%d', [MonitorCount, ActiveMonitor]);
+  SegLen := Length(Payload) + 2;
+  Segment := #$FF#$FE + Chr((SegLen shr 8) and $FF) + Chr(SegLen and $FF) + Payload;
+  Result := Copy(JpegBytes, 1, 2) + Segment + Copy(JpegBytes, 3, MaxInt);
+end;
+
+procedure ExtractMonitorMetaFromJpeg(const JpegBytes: string; out MonitorCount, ActiveMonitor: Integer);
+var
+  SegLen, P: Integer;
+  Payload, Rest: string;
+begin
+  MonitorCount := 1;
+  ActiveMonitor := 0;
+  if (Length(JpegBytes) < 12) or (JpegBytes[1] <> #$FF) or (JpegBytes[2] <> #$D8) or
+     (JpegBytes[3] <> #$FF) or (JpegBytes[4] <> #$FE) then
+    Exit;
+  SegLen := (Ord(JpegBytes[5]) shl 8) or Ord(JpegBytes[6]);
+  if (SegLen < 10) or (4 + SegLen > Length(JpegBytes)) then Exit;
+  Payload := Copy(JpegBytes, 7, SegLen - 2);
+  if Copy(Payload, 1, 8) <> 'MDSKMON:' then Exit;
+  Rest := Copy(Payload, 9, MaxInt);
+  P := Pos(':', Rest);
+  if P <= 1 then Exit;
+  MonitorCount := StrToIntDef(Copy(Rest, 1, P - 1), 1);
+  ActiveMonitor := StrToIntDef(Copy(Rest, P + 1, MaxInt), 0);
+  if MonitorCount < 1 then MonitorCount := 1;
+  if (ActiveMonitor < 0) or (ActiveMonitor >= MonitorCount) then ActiveMonitor := 0;
+end;
 
 end.
