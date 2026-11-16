@@ -14,6 +14,14 @@ Manter este repositório e `CHATGPT` como diretórios irmãos. Requisito validad
 
 A saída é sempre `bin/MaurinDesk.exe`. O script atualiza `bin/manifest.json` e `update.json` com o tamanho e o SHA-256 reais. Fechar o executável antes de recompilar. Não gerar nomes com versão no nome do arquivo.
 
+Para gerar o instalador Windows (`bin/MaurinDesk-Setup.exe`) com Inno Setup 6, bibliotecas OpenSSL (`libssl-3-x64.dll` e `libcrypto-3-x64.dll` em `bin/`) e inicialização automática com o Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File installer/build-installer.ps1
+```
+
+Na inicialização (`MaurinDesk.lpr`), `uDeskInstall.LoadLocalOpenSSL` prioriza e carrega as DLLs OpenSSL diretamente da pasta do executável. Em sessões remotas, `uScreenCapture` e `uRemoteViewer` suportam seleção de múltiplos monitores pelo visualizador (tanto via Ponte HTTPS quanto P2P), indicador visual verde/vermelho no topo mantendo o último quadro válido e desconexão automática após 20 segundos ininterruptos de erro de comunicação.
+
 Para a IDE, abrir `desktop/MaurinDesk.lpi`. A biblioteca compartilhada fica em `CHATGPT/pacote/AI Communication/AIRemoteDesktop`.
 
 ## Execução e configurações

@@ -60,6 +60,8 @@ A imagem central mostra o computador acessado. Com autorização de controle, us
 
 | Botão | Resultado |
 |---|---|
+| **Monitor** (quando o computador remoto tem 2+ telas) | Lista na barra superior do visualizador qual monitor remoto está sendo capturado e permite alternar entre eles. |
+| **Indicador verde/vermelho** (canto superior esquerdo) | Verde indica recepção normal de quadros; vermelho indica falha momentânea mantendo a última imagem válida. Se a falha durar 20 segundos ininterruptos, a sessão é encerrada. |
 | **Transferir arquivos** | Abre uma janela para escolher o que enviar ou receber e onde salvar. |
 | **Ajustar à Janela** | Alterna o ajuste da imagem ao tamanho do visualizador. |
 | **Tela Cheia** | Amplia a janela; o botão passa a permitir sair desse modo. |

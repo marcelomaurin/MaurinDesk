@@ -42,7 +42,7 @@ O **MaurinDesk** leva você até o computador de quem precisa de ajuda, em qualq
 
 | Recurso | O que entrega |
 |---|---|
-| **Tela remota** | Veja o outro computador em uma janela ajustável ou em tela cheia. |
+| **Tela remota** | Veja o outro computador em uma janela ajustável ou em tela cheia, com troca de monitor quando houver múltiplas telas. |
 | **Mouse e teclado** | Trabalhe no computador remoto como se estivesse diante dele, quando autorizado. |
 | **Só visualizar** | Compartilhe a tela para demonstrações, sem permitir controle nem arquivos. |
 | **Transferência de arquivos** | Dois painéis, um para cada computador, com fila e confirmação de gravação. |
@@ -69,7 +69,7 @@ O **MaurinDesk** leva você até o computador de quem precisa de ajuda, em qualq
 
 ## Comece agora
 
-[**Baixar o MaurinDesk para Windows**](bin/MaurinDesk.exe) e abrir o arquivo já é suficiente para o primeiro atendimento. Para deixar o programa instalado, use **Configurações → Instalar neste computador**.
+[**Baixar o instalador para Windows (`MaurinDesk-Setup.exe`)**](bin/MaurinDesk-Setup.exe) ou [**baixar apenas o executável (`MaurinDesk.exe`)**](bin/MaurinDesk.exe) já é suficiente para o primeiro atendimento. O instalador já inclui as bibliotecas OpenSSL necessárias e configura a inicialização automática com o Windows (também ajustável em **Configurações**).
 
 Quer usar o MaurinDesk na sua empresa ou tem uma necessidade específica? [Fale com a MaurinSoft](https://maurinsoft.com.br).
 

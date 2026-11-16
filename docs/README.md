@@ -18,7 +18,8 @@ Referência para quem desenvolve, compila, publica ou mantém o MaurinDesk. Para
 |---|---|
 | `desktop/` | Aplicativo Windows em Lazarus/Free Pascal. |
 | `server/api/` | API em PHP, com as migrações do banco (MySQL/MariaDB na hospedagem, SQLite nos testes). |
-| `bin/` | Executável publicado e `manifest.json`. |
+| `bin/` | Executável publicado, bibliotecas OpenSSL x64, instalador `MaurinDesk-Setup.exe` e `manifest.json`. |
+| `installer/` | Script Inno Setup (`MaurinDesk.iss`) e automação (`build-installer.ps1`). |
 | `tests/` | Testes da API (`tests/server/`), da fronteira HTTP e testes nativos do aplicativo. |
 | `docs/` | Especificação, decisões, guias e imagens. |
 | `dependencies/` | Versão validada da biblioteca compartilhada do repositório CHATGPT. |
@@ -54,6 +55,7 @@ Referência para quem desenvolve, compila, publica ou mantém o MaurinDesk. Para
 
 ```powershell
 ./build.ps1                      # gera bin/MaurinDesk.exe e atualiza manifest.json e update.json
+./installer/build-installer.ps1  # gera bin/MaurinDesk-Setup.exe com OpenSSL e autostart
 php tests/server/files.php       # API: identidade, consentimento, área de transferência e arquivos
 php tests/server/schema.php      # migrações do banco
 python tests/http_smoke.py       # fronteira HTTP

@@ -8,6 +8,11 @@
 - Verificado o acesso visível e clicável em larguras de 640, 800, 1024 e 1280 pixels, preservando o tratamento do teclado remoto.
 - Segurança: somente quem iniciou a conexão com a chave lista, cria pastas e pede arquivos do outro computador. O computador atendido apenas atende a esses pedidos e só envia arquivos solicitados, para o destino solicitado; a regra vale na API e no aplicativo.
 - Segurança: o envio de diagnóstico exige credencial válida de dispositivo registrado, com limite de 20 envios por hora e 256 KiB por relatório; a sessão só é associada quando o dispositivo participa dela.
+- Instalador Windows x64 (`bin/MaurinDesk-Setup.exe`) via Inno Setup 6 (`installer/MaurinDesk.iss` e `installer/build-installer.ps1`), incluindo `libssl-3-x64.dll` e `libcrypto-3-x64.dll` junto ao executável e configurando inicialização automática minimizada no Windows.
+- Carregamento explícito das bibliotecas OpenSSL diretamente da pasta do executável (`LoadLocalOpenSSL` e cópia das DLLs na instalação interna em `uDeskInstall.pas`).
+- Seletor de múltiplos monitores exibido na barra superior do visualizador remoto (`uRemoteViewer.pas`) quando o computador remoto possui mais de uma tela, com suporte via Ponte HTTPS e P2P.
+- Indicador circular verde/vermelho no topo do visualizador mantendo a última imagem válida em caso de falha de comunicação, com encerramento automático após 20 segundos ininterruptos sem resposta.
+- Servidor (`server/api/Api.php`): encerramento automático de sessões antigas presas no `host_id` ao registrar o dispositivo (`POST /devices`) e checagem de `expires_at > now` na validação de `HOST_BUSY`.
 
 ## 0.6.7 — 14/11/2026
 

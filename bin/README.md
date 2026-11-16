@@ -3,8 +3,9 @@
 Documento técnico; a apresentação do produto está no [README principal](../README.md).
 
 - **MaurinDesk.exe** — Windows x64; a versão publicada está em [manifest.json](manifest.json). Todas as versões usam este mesmo nome.
-- Compilado com Lazarus 4.6 / FPC 3.2.2 nativo (sem DLLs externas).
-- SHA-256 e metadados detalhados em [manifest.json](manifest.json).
+- **MaurinDesk-Setup.exe** — Instalador Windows x64 (Inno Setup 6) por usuário (`%LOCALAPPDATA%\Programs\MaurinSoft\MaurinDesk`), já incluindo o executável, as bibliotecas OpenSSL e a opção de iniciar minimizado com o Windows.
+- **libssl-3-x64.dll** e **libcrypto-3-x64.dll** — Bibliotecas OpenSSL 3.5.2 (x64) distribuídas junto ao executável e carregadas explicitamente da pasta do `.exe`.
+- Compilado com Lazarus 4.6 / FPC 3.2.2; metadados e SHA-256 em [manifest.json](manifest.json).
 
 Recursos disponíveis nesta versão:
 1. **Identidade e Presença**: Registro automático com chave única de 10 dígitos e token criptográfico.
