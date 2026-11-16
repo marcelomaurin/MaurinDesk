@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
     [string]$OpenSslBin = 'C:\Program Files\OpenSSL-Win64\bin'
 )

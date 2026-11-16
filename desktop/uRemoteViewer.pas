@@ -27,6 +27,7 @@ type
     FOnOpenReceived: TNotifyEvent;
     FOnOpenFileManager: TNotifyEvent;
     FCloseReason: string;
+    FConnDot: TPaintBox;
     FStatusLabel: TLabel;
     FFPSLabel: TLabel;
     FBtnFit: TSpeedButton;
@@ -38,7 +39,12 @@ type
     FLastFPSTime: QWord;
     FRemoteKey: string;
     FErrorMessage: string;
+    FHasCommError: Boolean;
+    FErrorStartTick: QWord;
+    FCommTimer: TTimer;
     FOnCloseSession: TNotifyEvent;
+    procedure ConnDotPaint(Sender: TObject);
+    procedure CommTimerTick(Sender: TObject);
     procedure PaintBoxPaint(Sender: TObject);
     procedure PaintBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -109,13 +115,25 @@ begin
   FTopBar.Color := $181825;
   FTopBar.BevelOuter := bvNone;
 
+  FConnDot := TPaintBox.Create(Self);
+  FConnDot.Parent := FTopBar;
+  FConnDot.SetBounds(12, 14, 14, 14);
+  FConnDot.OnPaint := @ConnDotPaint;
+
   FStatusLabel := TLabel.Create(Self);
   FStatusLabel.Parent := FTopBar;
-  FStatusLabel.Left := 16;
+  FStatusLabel.Left := 32;
   FStatusLabel.Top := 12;
   FStatusLabel.Font.Color := $CDD6F4;
   FStatusLabel.Font.Style := [fsBold];
   FStatusLabel.Caption := _T(strViewerConnectedTo) + ARemoteKey;
+
+  FHasCommError := False;
+  FErrorStartTick := 0;
+  FCommTimer := TTimer.Create(Self);
+  FCommTimer.Interval := 1000;
+  FCommTimer.OnTimer := @CommTimerTick;
+  FCommTimer.Enabled := True;
 
   FFPSLabel := TLabel.Create(Self);
   FFPSLabel.Parent := FTopBar;
@@ -223,7 +241,10 @@ end;
 procedure TfRemoteViewer.SetPortConnected(APort: Integer);
 begin
   FErrorMessage := '';
-  FStatusLabel.Caption := '● ' + _T(strViewerConnectedTo) + FRemoteKey + ' (P2P Porta ' + IntToStr(APort) + ')';
+  FHasCommError := False;
+  FErrorStartTick := 0;
+  FConnDot.Invalidate;
+  FStatusLabel.Caption := _T(strViewerConnectedTo) + FRemoteKey + ' (P2P Porta ' + IntToStr(APort) + ')';
   FStatusLabel.Font.Color := RGBToColor(34, 197, 94);
   FPaintBox.Invalidate;
 end;
@@ -288,57 +309,54 @@ begin
   Result := True;
 end;
 
+procedure TfRemoteViewer.ConnDotPaint(Sender: TObject);
+begin
+  FConnDot.Canvas.Brush.Color := FTopBar.Color;
+  FConnDot.Canvas.FillRect(0, 0, FConnDot.Width, FConnDot.Height);
+  if FHasCommError then
+  begin
+    FConnDot.Canvas.Brush.Color := RGBToColor(239, 68, 68);
+    FConnDot.Canvas.Pen.Color := RGBToColor(220, 38, 38);
+  end
+  else
+  begin
+    FConnDot.Canvas.Brush.Color := RGBToColor(34, 197, 94);
+    FConnDot.Canvas.Pen.Color := RGBToColor(22, 163, 74);
+  end;
+  FConnDot.Canvas.Ellipse(1, 1, FConnDot.Width - 1, FConnDot.Height - 1);
+end;
+
+procedure TfRemoteViewer.CommTimerTick(Sender: TObject);
+begin
+  if FHasCommError and (FErrorStartTick > 0) and (GetTickCount64 - FErrorStartTick >= 20000) then
+  begin
+    FCommTimer.Enabled := False;
+    FCloseReason := 'comm_timeout_20s';
+    Close;
+  end;
+end;
+
 procedure TfRemoteViewer.SetErrorMessage(const Msg: string);
 begin
   FErrorMessage := Msg;
-  FStatusLabel.Caption := '● ' + _T(strErrConnectionFailed);
+  FHasCommError := True;
+  if FErrorStartTick = 0 then
+    FErrorStartTick := GetTickCount64;
+  FConnDot.Invalidate;
+  FStatusLabel.Caption := _T(strErrConnectionFailed);
+  FStatusLabel.Hint := Msg;
+  FStatusLabel.ShowHint := Msg <> '';
   FStatusLabel.Font.Color := RGBToColor(239, 68, 68);
-  FFPSLabel.Caption := 'DESCONECTADO';
+  FFPSLabel.Caption := 'SEM SINAL';
   FFPSLabel.Font.Color := RGBToColor(239, 68, 68);
-  FPaintBox.Invalidate;
 end;
 
 procedure TfRemoteViewer.PaintBoxPaint(Sender: TObject);
 var
   DestR: TRect;
-  BoxX, BoxY: Integer;
 begin
   FPaintBox.Canvas.Brush.Color := $1E1E2E;
   FPaintBox.Canvas.FillRect(0, 0, FPaintBox.Width, FPaintBox.Height);
-
-  if FErrorMessage <> '' then
-  begin
-    BoxX := (FPaintBox.Width - 620) div 2;
-    BoxY := (FPaintBox.Height - 260) div 2;
-    if BoxX < 10 then BoxX := 10;
-    if BoxY < 10 then BoxY := 10;
-
-    // Fundo do alerta
-    FPaintBox.Canvas.Brush.Color := $28181F;
-    FPaintBox.Canvas.Pen.Color := $EF4444;
-    FPaintBox.Canvas.Rectangle(BoxX, BoxY, BoxX + 620, BoxY + 250);
-
-    FPaintBox.Canvas.Font.Size := 12;
-    FPaintBox.Canvas.Font.Style := [fsBold];
-    FPaintBox.Canvas.Font.Color := $EF4444;
-    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 20, '⚠ ' + _T(strErrConnectionFailed));
-
-    FPaintBox.Canvas.Font.Size := 9;
-    FPaintBox.Canvas.Font.Style := [];
-    FPaintBox.Canvas.Font.Color := $FFFFFF;
-    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 52, Copy(FErrorMessage, 1, 80));
-
-    FPaintBox.Canvas.Font.Color := $A6ADC8;
-    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 84, '• Verifique se a máquina remota está conectada e online.');
-    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 106, '• Confira o envio do primeiro quadro no log do computador remoto.');
-    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 128, '• Confira o acesso HTTPS ao servidor nas duas maquinas.');
-    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 150, '• A ponte continua tentando receber a imagem automaticamente.');
-
-    FPaintBox.Canvas.Font.Style := [fsBold];
-    FPaintBox.Canvas.Font.Color := $F59E0B;
-    FPaintBox.Canvas.TextOut(BoxX + 25, BoxY + 195, 'Clique no botão vermelho "Desconectar" acima para fechar.');
-    Exit;
-  end;
 
   if (FRemoteBmp <> nil) and (FRemoteBmp.Width > 0) and (FRemoteBmp.Height > 0) then
   begin
@@ -360,8 +378,14 @@ var
 begin
   if (FrameBmp = nil) or (FrameBmp.Width = 0) then Exit;
   FErrorMessage := '';
-  FStatusLabel.Caption := '● ' + _T(strViewerConnectedTo) + FRemoteKey;
+  FHasCommError := False;
+  FErrorStartTick := 0;
+  FConnDot.Invalidate;
+  FStatusLabel.Caption := _T(strViewerConnectedTo) + FRemoteKey;
+  FStatusLabel.Hint := '';
+  FStatusLabel.ShowHint := False;
   FStatusLabel.Font.Color := RGBToColor(34, 197, 94);
+  FFPSLabel.Font.Color := $A6ADC8;
 
   FRemoteBmp.Assign(FrameBmp);
   FPaintBox.Invalidate;
@@ -489,7 +513,8 @@ var W: Integer;
 begin
   if FBtnFiles=nil then Exit;
   FTopBar.Height:=82;
-  FStatusLabel.AutoSize:=False; FStatusLabel.SetBounds(12,10,FTopBar.ClientWidth div 2-20,24);
+  FConnDot.SetBounds(12,14,14,14);
+  FStatusLabel.AutoSize:=False; FStatusLabel.SetBounds(32,10,FTopBar.ClientWidth div 2-40,24);
   FFPSLabel.AutoSize:=False; FFPSLabel.SetBounds(FTopBar.ClientWidth div 2,10,FTopBar.ClientWidth div 2-12,24);
   FFPSLabel.Alignment:=taRightJustify;
   W:=(FTopBar.ClientWidth-40) div 4;

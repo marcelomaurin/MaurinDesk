@@ -11,7 +11,7 @@
    <StringTable CompanyName="MaurinSoft" FileDescription="MaurinDesk - Acesso remoto assistido" ProductName="MaurinDesk" ProductVersion="0.6.8" OriginalFilename="MaurinDesk.exe"/>
   </VersionInfo>
   <RequiredPackages Count="1"><Item1><PackageName Value="LCL"/></Item1></RequiredPackages>
-  <Units Count="17">
+  <Units Count="18">
    <Unit0><Filename Value="MaurinDesk.lpr"/><IsPartOfProject Value="True"/></Unit0>
    <Unit1><Filename Value="umain.pas"/><IsPartOfProject Value="True"/></Unit1>
    <Unit2><Filename Value="uDeskProtocol.pas"/><IsPartOfProject Value="True"/></Unit2>
@@ -29,6 +29,7 @@
    <Unit14><Filename Value="uDeskSettings.pas"/><IsPartOfProject Value="True"/></Unit14>
    <Unit15><Filename Value="uDeskUpdate.pas"/><IsPartOfProject Value="True"/></Unit15>
    <Unit16><Filename Value="uDeskInstall.pas"/><IsPartOfProject Value="True"/></Unit16>
+   <Unit17><Filename Value="uDeskMonitorBar.pas"/><IsPartOfProject Value="True"/></Unit17>
   </Units>
  </ProjectOptions>
  <CompilerOptions>

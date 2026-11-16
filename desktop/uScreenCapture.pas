@@ -6,12 +6,19 @@ interface
 
 uses
   {$IFDEF WINDOWS}
-  Windows,
+  Windows, MultiMon,
   {$ENDIF}
   Classes, SysUtils, Graphics;
 
-{ Captura a tela inteira do monitor principal em um TBitmap 24 bits }
+{ Captura a tela inteira do monitor selecionado em um TBitmap 24 bits }
 function CaptureScreenBitmap(out Bmp: Graphics.TBitmap): Boolean;
+
+{ Gerenciamento de múltiplos monitores para captura }
+function GetCaptureMonitorCount: Integer;
+function GetCaptureMonitorIndex: Integer;
+procedure SetCaptureMonitorIndex(Index: Integer);
+function GetCaptureMonitorCaption(Index: Integer): string;
+function GetCaptureMonitorBounds(Index: Integer; out R: TRect): Boolean;
 
 { Converte um TBitmap em fluxo JPEG com compressão configurável (padrão 65%) }
 procedure CompressBitmapToJpegStream(Bmp: Graphics.TBitmap; Stream: TStream; Quality: Integer = 65);
@@ -25,18 +32,125 @@ procedure ReleaseAllInputKeys;
 
 implementation
 
+{$IFDEF WINDOWS}
+type
+  TEnumMonitorItem = record
+    Bounds: TRect;
+    IsPrimary: Boolean;
+  end;
+  PEnumMonitorList = ^TEnumMonitorList;
+  TEnumMonitorList = array of TEnumMonitorItem;
+
+var
+  GCaptureMonitorIndex: LongInt = 0;
+
+function EnumMonitorProc(hm: HMONITOR; dc: HDC; r: PRect; data: LPARAM): BOOL; stdcall;
+var
+  List: PEnumMonitorList;
+  Info: TMonitorInfo;
+  Idx: Integer;
+begin
+  List := PEnumMonitorList(data);
+  FillChar(Info, SizeOf(Info), 0);
+  Info.cbSize := SizeOf(Info);
+  if GetMonitorInfo(hm, @Info) then
+  begin
+    Idx := Length(List^);
+    SetLength(List^, Idx + 1);
+    List^[Idx].Bounds := Info.rcMonitor;
+    List^[Idx].IsPrimary := (Info.dwFlags and MONITORINFOF_PRIMARY) <> 0;
+  end;
+  Result := True;
+end;
+
+procedure CollectMonitors(out List: TEnumMonitorList);
+begin
+  List := nil;
+  EnumDisplayMonitors(0, nil, @EnumMonitorProc, LPARAM(@List));
+end;
+
+function GetCaptureMonitorCount: Integer;
+var
+  List: TEnumMonitorList;
+begin
+  CollectMonitors(List);
+  Result := Length(List);
+  if Result <= 0 then Result := 1;
+end;
+
+function GetCaptureMonitorIndex: Integer;
+var
+  Count, Idx: Integer;
+begin
+  Count := GetCaptureMonitorCount;
+  Idx := InterlockedCompareExchange(GCaptureMonitorIndex, 0, 0);
+  if (Idx < 0) or (Idx >= Count) then Idx := 0;
+  Result := Idx;
+end;
+
+procedure SetCaptureMonitorIndex(Index: Integer);
+var
+  Count: Integer;
+begin
+  Count := GetCaptureMonitorCount;
+  if (Index < 0) or (Index >= Count) then Index := 0;
+  InterlockedExchange(GCaptureMonitorIndex, Index);
+end;
+
+function GetCaptureMonitorBounds(Index: Integer; out R: TRect): Boolean;
+var
+  List: TEnumMonitorList;
+begin
+  CollectMonitors(List);
+  if (Index >= 0) and (Index < Length(List)) then
+  begin
+    R := List[Index].Bounds;
+    Result := (R.Right > R.Left) and (R.Bottom > R.Top);
+  end
+  else
+    Result := False;
+end;
+
+function GetCaptureMonitorCaption(Index: Integer): string;
+var
+  List: TEnumMonitorList;
+  W, H: Integer;
+begin
+  CollectMonitors(List);
+  if (Index >= 0) and (Index < Length(List)) then
+  begin
+    W := List[Index].Bounds.Right - List[Index].Bounds.Left;
+    H := List[Index].Bounds.Bottom - List[Index].Bounds.Top;
+    Result := Format('Monitor %d (%dx%d)', [Index + 1, W, H]);
+    if List[Index].IsPrimary then
+      Result := Result + ' - Principal';
+  end
+  else
+    Result := Format('Monitor %d', [Index + 1]);
+end;
+{$ELSE}
+function GetCaptureMonitorCount: Integer; begin Result := 1; end;
+function GetCaptureMonitorIndex: Integer; begin Result := 0; end;
+procedure SetCaptureMonitorIndex(Index: Integer); begin end;
+function GetCaptureMonitorBounds(Index: Integer; out R: TRect): Boolean; begin R := Rect(0,0,0,0); Result := False; end;
+function GetCaptureMonitorCaption(Index: Integer): string; begin Result := 'Monitor 1'; end;
+{$ENDIF}
+
 function CaptureScreenBitmap(out Bmp: Graphics.TBitmap): Boolean;
 {$IFDEF WINDOWS}
 var
   ScreenDC: HDC;
+  MonitorRect: TRect;
   ScreenWidth, ScreenHeight: Integer;
   CursorInfo: TCursorInfo;
   IconInfo: TIconInfo;
 begin
   Result := False;
   Bmp := nil;
-  ScreenWidth := GetSystemMetrics(SM_CXSCREEN);
-  ScreenHeight := GetSystemMetrics(SM_CYSCREEN);
+  if not GetCaptureMonitorBounds(GetCaptureMonitorIndex, MonitorRect) then
+    MonitorRect := Rect(0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+  ScreenWidth := MonitorRect.Right - MonitorRect.Left;
+  ScreenHeight := MonitorRect.Bottom - MonitorRect.Top;
   if (ScreenWidth <= 0) or (ScreenHeight <= 0) then Exit;
 
   Bmp := Graphics.TBitmap.Create;
@@ -53,20 +167,20 @@ begin
 
   try
     Bmp.Canvas.Changing;
-    Result := BitBlt(Bmp.Canvas.Handle, 0, 0, ScreenWidth, ScreenHeight, ScreenDC, 0, 0, SRCCOPY);
+    Result := BitBlt(Bmp.Canvas.Handle, 0, 0, ScreenWidth, ScreenHeight, ScreenDC, MonitorRect.Left, MonitorRect.Top, SRCCOPY);
     if Result then
     begin
-      // Desenha o ponteiro real do mouse sobre a imagem
+      // Desenha o ponteiro real do mouse sobre a imagem quando estiver no monitor capturado
       FillChar(CursorInfo, SizeOf(CursorInfo), 0);
       CursorInfo.cbSize := SizeOf(CursorInfo);
-      if GetCursorInfo(CursorInfo) and (CursorInfo.flags = 1) then
+      if GetCursorInfo(CursorInfo) and (CursorInfo.flags = 1) and PtInRect(MonitorRect, CursorInfo.ptScreenPos) then
       begin
         FillChar(IconInfo, SizeOf(IconInfo), 0);
         if GetIconInfo(CursorInfo.hCursor, IconInfo) then
         begin
           DrawIconEx(Bmp.Canvas.Handle,
-            CursorInfo.ptScreenPos.x - Integer(IconInfo.xHotspot),
-            CursorInfo.ptScreenPos.y - Integer(IconInfo.yHotspot),
+            CursorInfo.ptScreenPos.x - MonitorRect.Left - Integer(IconInfo.xHotspot),
+            CursorInfo.ptScreenPos.y - MonitorRect.Top - Integer(IconInfo.yHotspot),
             CursorInfo.hCursor, 0, 0, 0, 0, DI_NORMAL);
           if IconInfo.hbmMask <> 0 then DeleteObject(IconInfo.hbmMask);
           if IconInfo.hbmColor <> 0 then DeleteObject(IconInfo.hbmColor);
@@ -114,13 +228,16 @@ end;
 procedure InjectMouseMove(NormX, NormY: Word);
 {$IFDEF WINDOWS}
 var
+  MonitorRect: TRect;
   PixelsX, PixelsY: Integer;
   ScreenWidth, ScreenHeight: Integer;
 begin
-  ScreenWidth := GetSystemMetrics(SM_CXSCREEN);
-  ScreenHeight := GetSystemMetrics(SM_CYSCREEN);
-  PixelsX := Round((NormX / 65535.0) * ScreenWidth);
-  PixelsY := Round((NormY / 65535.0) * ScreenHeight);
+  if not GetCaptureMonitorBounds(GetCaptureMonitorIndex, MonitorRect) then
+    MonitorRect := Rect(0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+  ScreenWidth := MonitorRect.Right - MonitorRect.Left;
+  ScreenHeight := MonitorRect.Bottom - MonitorRect.Top;
+  PixelsX := MonitorRect.Left + Round((NormX / 65535.0) * ScreenWidth);
+  PixelsY := MonitorRect.Top + Round((NormY / 65535.0) * ScreenHeight);
   SetCursorPos(PixelsX, PixelsY);
 end;
 {$ELSE}
