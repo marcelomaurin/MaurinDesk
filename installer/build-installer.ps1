@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
     [string]$OpenSslBin = 'C:\Program Files\OpenSSL-Win64\bin'
 )
@@ -31,7 +31,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Falha ao compilar o instalador com ISCC.exe (código $LASTEXITCODE)."
     }
-    $setup = Get-Item -LiteralPath (Join-Path $PSScriptRoot 'MaurinDesk-Setup.exe')
+    $setup = Get-Item -LiteralPath (Join-Path $root 'bin\MaurinDesk-Setup.exe')
     Write-Output "Instalador gerado: $($setup.FullName) ($($setup.Length) bytes, v$version)"
 } finally {
     Pop-Location
