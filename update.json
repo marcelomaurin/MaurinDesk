@@ -1,11 +1,11 @@
-{
-  "version": "0.6.8",
-  "platform": "windows-x64",
-  "filename": "MaurinDesk.exe",
-  "download_url": "https://raw.githubusercontent.com/marcelomaurin/MaurinDesk/fila/bin/MaurinDesk.exe",
-  "bytes": 29223911,
-  "sha256": "aeb4a35bfe359645845b3c5421157b2df94c94e19a714f9044bdc7096db3e4fc",
-  "build_date": "2026-11-14",
-  "minimum_api_schema": "0.9",
-  "release_notes": "Transferir arquivos acessivel na barra responsiva do visualizador e na sessao ativa, com envio e recebimento para a pasta escolhida."
+﻿{
+    "version":  "0.6.8",
+    "platform":  "windows-x64",
+    "filename":  "MaurinDesk.exe",
+    "download_url":  "https://raw.githubusercontent.com/marcelomaurin/MaurinDesk/fila/bin/MaurinDesk.exe",
+    "bytes":  29226706,
+    "sha256":  "81409549627797468491c0e04ce47fb78b47d8f94f3cc634654a5b9b47f2a066",
+    "build_date":  "2026-11-16",
+    "minimum_api_schema":  "0.9",
+    "release_notes":  "Transferir arquivos acessivel na barra responsiva do visualizador e na sessao ativa, com envio e recebimento para a pasta escolhida."
 }

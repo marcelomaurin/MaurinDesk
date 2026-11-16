@@ -1,6 +1,8 @@
 # Executáveis MaurinDesk
 
-- **MaurinDesk.exe** — Versão 0.6.6, Windows x64. Todas as versões usam este mesmo nome.
+Documento técnico; a apresentação do produto está no [README principal](../README.md).
+
+- **MaurinDesk.exe** — Windows x64; a versão publicada está em [manifest.json](manifest.json). Todas as versões usam este mesmo nome.
 - Compilado com Lazarus 4.6 / FPC 3.2.2 nativo (sem DLLs externas).
 - SHA-256 e metadados detalhados em [manifest.json](manifest.json).
 

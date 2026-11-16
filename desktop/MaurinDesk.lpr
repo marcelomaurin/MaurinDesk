@@ -1,9 +1,10 @@
 program MaurinDesk;
 {$mode objfpc}{$H+}
 {$R *.res}
-uses Interfaces, Forms, SysUtils, Graphics, uDeskFileManager, umain, setmain, uDeskSettings;
+uses Interfaces, Forms, SysUtils, Graphics, uDeskFileManager, umain, setmain, uDeskSettings, uDeskInstall;
 var I: Integer; Bitmap: TBitmap; PNG: TPortableNetworkGraphic; Settings: TSetMain; FilesForm: TDeskFileManager;
 begin
+  LoadLocalOpenSSL;
   RequireDerivedFormResource:=False;
   Application.Initialize;
   Application.Title:='MaurinDesk';

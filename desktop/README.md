@@ -1,6 +1,8 @@
-# Desktop Lazarus — 0.6.6
+# Desktop Lazarus — 0.6.8
 
-Cliente Windows x64 com tela remota, controle, clipboard de texto/arquivos, favoritos, histórico, área do relógio, instalação por usuário e atualizações pelo GitHub.
+Documento técnico; a apresentação do produto está no [README principal](../README.md) e o índice técnico em [docs/README.md](../docs/README.md).
+
+Cliente Windows x64 com tela remota, controle, gerenciador de arquivos local/remoto, clipboard de texto/arquivos, favoritos, histórico, área do relógio, instalação por usuário e atualizações pelo GitHub.
 
 ## Compilação
 
@@ -18,7 +20,7 @@ Para a IDE, abrir `desktop/MaurinDesk.lpi`. A biblioteca compartilhada fica em `
 
 O primeiro uso registra a identidade automaticamente. Configurações: `%LOCALAPPDATA%\MaurinDesk\Setmain.cfg`, geridas por `TSetMain`. Tokens permanecem protegidos por DPAPI nos perfis do usuário separados por servidor.
 
-O endereço de produção é `https://maurinsoft.com.br/MaurinDesk/api`. O clipboard requer publicar a API com esquema `0.7`. Consulte [recursos da versão](../docs/14-recursos-desktop.md).
+O endereço de produção é `https://maurinsoft.com.br/MaurinDesk/api`. O clipboard requer a API com esquema `0.7` e o gerenciador de arquivos, o esquema `0.9`. Consulte [recursos da versão](../docs/14-recursos-desktop.md).
 
 Para desenvolvimento, HTTP local só é aceito quando iniciado explicitamente:
 
