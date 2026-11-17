@@ -17,6 +17,7 @@ type
     FRelayClient: TDeskRelayClient;
     FRemoteBmp: TBitmap;
     FTopBar: TPanel;
+    FScrollBox: TScrollBox;
     FPaintBox: TPaintBox;
     FInputSurface: TPanel;
     FPressedKeys: array[0..255] of Boolean;
@@ -73,6 +74,8 @@ type
     procedure HandleFrameReceived(Sender: TObject; FrameBmp: TBitmap; FrameId: Cardinal);
     function ScreenToRemote(X, Y: Integer; out NormX, NormY: Word): Boolean;
     procedure GetDestRect(out R: TRect);
+    procedure UpdateCanvasSize;
+    procedure ScrollBoxResize(Sender: TObject);
   protected
     procedure DoClose(var CloseAction: TCloseAction); override;
   public
@@ -210,9 +213,20 @@ begin
   // Área central de renderização
   FInputSurface:=TPanel.Create(Self); FInputSurface.Parent:=Self; FInputSurface.Align:=alClient;
   FInputSurface.BevelOuter:=bvNone; FInputSurface.Color:=Color; FInputSurface.TabStop:=True;
+  FScrollBox := TScrollBox.Create(Self);
+  FScrollBox.Parent := FInputSurface;
+  FScrollBox.Align := alClient;
+  FScrollBox.BorderStyle := bsNone;
+  FScrollBox.Color := Color;
+  FScrollBox.AutoScroll := True;
+  FScrollBox.TabStop := False;
+  FScrollBox.HorzScrollBar.Tracking := True;
+  FScrollBox.VertScrollBar.Tracking := True;
+  FScrollBox.OnResize := @ScrollBoxResize;
+
   FPaintBox := TPaintBox.Create(Self);
-  FPaintBox.Parent := FInputSurface;
-  FPaintBox.Align := alClient;
+  FPaintBox.Parent := FScrollBox;
+  FPaintBox.SetBounds(0, 0, FScrollBox.ClientWidth, FScrollBox.ClientHeight);
   FPaintBox.OnPaint := @PaintBoxPaint;
   FPaintBox.OnMouseMove := @PaintBoxMouseMove;
   FPaintBox.OnMouseDown := @PaintBoxMouseDown;
@@ -319,8 +333,46 @@ begin
   end
   else
   begin
-    R := Rect(0, 0, FRemoteBmp.Width, FRemoteBmp.Height);
+    R.Left := 0;
+    R.Top := 0;
+    if FPaintBox.Width > FRemoteBmp.Width then
+      R.Left := (FPaintBox.Width - FRemoteBmp.Width) div 2;
+    if FPaintBox.Height > FRemoteBmp.Height then
+      R.Top := (FPaintBox.Height - FRemoteBmp.Height) div 2;
+    R.Right := R.Left + FRemoteBmp.Width;
+    R.Bottom := R.Top + FRemoteBmp.Height;
   end;
+end;
+
+procedure TfRemoteViewer.UpdateCanvasSize;
+var
+  TargetW, TargetH: Integer;
+begin
+  if (FScrollBox = nil) or (FPaintBox = nil) then Exit;
+  if FFitToWindow or (FRemoteBmp = nil) or (FRemoteBmp.Width <= 0) or (FRemoteBmp.Height <= 0) then
+  begin
+    TargetW := FScrollBox.ClientWidth;
+    TargetH := FScrollBox.ClientHeight;
+  end
+  else
+  begin
+    TargetW := FRemoteBmp.Width;
+    if TargetW < FScrollBox.ClientWidth then
+      TargetW := FScrollBox.ClientWidth;
+    TargetH := FRemoteBmp.Height;
+    if TargetH < FScrollBox.ClientHeight then
+      TargetH := FScrollBox.ClientHeight;
+  end;
+  if TargetW < 1 then TargetW := 1;
+  if TargetH < 1 then TargetH := 1;
+  if (FPaintBox.Width <> TargetW) or (FPaintBox.Height <> TargetH) then
+    FPaintBox.SetBounds(0, 0, TargetW, TargetH);
+end;
+
+procedure TfRemoteViewer.ScrollBoxResize(Sender: TObject);
+begin
+  UpdateCanvasSize;
+  FPaintBox.Invalidate;
 end;
 
 function TfRemoteViewer.ScreenToRemote(X, Y: Integer; out NormX, NormY: Word): Boolean;
@@ -481,6 +533,7 @@ begin
   FFPSLabel.Font.Color := $A6ADC8;
 
   FRemoteBmp.Assign(FrameBmp);
+  UpdateCanvasSize;
   FPaintBox.Invalidate;
 
   Inc(FFrameCount);
@@ -656,6 +709,7 @@ begin
     FBtnFit.Caption := _T(strViewerFitWindow)
   else
     FBtnFit.Caption := _T(strViewerOriginalSize);
+  UpdateCanvasSize;
   FPaintBox.Invalidate;
 end;
 
